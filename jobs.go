@@ -9,10 +9,19 @@ package main
 #include <stdint.h>
 #include "slurm/slurm.h"
 #include "slurm/slurm_errno.h"
+static char**makeCharArray(int size) {
+  return calloc(sizeof(char*), size);
+}
+static void setArrayString(char **a, char *s, int n) {
+	a[n] = s;
+}
 */
 import "C"
 
 import (
+	"encoding/json"
+	"io/ioutil"
+	"strconv"
 	"time"
 	"unsafe"
 
@@ -21,6 +30,7 @@ import (
 
 func InitializeJobsEndpoint(r *gin.Engine) {
 	r.GET("/jobs", getJobs)
+	r.POST("/jobs/submit", submitJob)
 }
 
 func getJobs(cnx *gin.Context) {
@@ -39,6 +49,48 @@ func getJobs(cnx *gin.Context) {
 	C.slurm_free_job_info_msg(slres)
 }
 
+func submitJob(cnx *gin.Context) {
+	jsonData, err := ioutil.ReadAll(cnx.Request.Body)
+
+	if err != nil {
+		cnx.JSON(400, err.Error())
+		return
+	}
+
+	var jobDescriptor JobDescriptor
+	json.Unmarshal([]byte(jsonData), &jobDescriptor)
+
+	job_desc_msg := convertJobDescriptor(jobDescriptor)
+	source := []string{"PATH=/bin:/usr/bin/:/usr/local/bin/"}
+	job_desc_msg.environment = getCStringArray(source)
+	var slres *C.submit_response_msg_t
+
+	ret := C.slurm_submit_batch_job(&job_desc_msg, &slres)
+	if ret == 0 {
+		res := convertSubmitResponse(slres)
+		cnx.JSON(200, res)
+	} else {
+		errno := C.slurm_get_errno()
+		errno_str := "SLURM-" + strconv.Itoa(int(errno)) + " " + C.GoString(C.slurm_strerror(errno))
+		cnx.JSON(500, errno_str)
+	}
+
+	C.slurm_free_submit_response_response_msg(slres)
+}
+
+func getCStringArray(source []string) **C.char {
+	cArray := C.malloc(C.size_t(len(source)) * C.size_t(unsafe.Sizeof(uintptr(0))))
+
+	// convert the C array to a Go Array so we can index it
+	a := (*[1<<30 - 1]*C.char)(cArray)
+
+	for idx, val := range source {
+			a[idx] = C.CString(val)
+	}
+
+	return (**C.char)(cArray)
+}
+
 func convertJobInfoArray(job_array *C.job_info_t, count int) []JobInfo {
 	var jobInfoSlice []JobInfo
 	if count == 0 {
@@ -50,6 +102,24 @@ func convertJobInfoArray(job_array *C.job_info_t, count int) []JobInfo {
 		jobInfoSlice = append(jobInfoSlice, jobInfo)
 	}
 	return jobInfoSlice
+}
+
+func convertJobDescriptor(jobDescriptor JobDescriptor) C.job_desc_msg_t {
+	var job_desc_msg C.job_desc_msg_t
+	C.slurm_init_job_desc_msg(&job_desc_msg)
+
+	job_desc_msg.name = C.CString(jobDescriptor.Name)
+	job_desc_msg.script = C.CString(jobDescriptor.Script)
+	return job_desc_msg
+}
+
+func convertSubmitResponse(slres *C.submit_response_msg_t) SubmitResponse {
+	var submitResponse SubmitResponse
+	submitResponse.JobId = int(slres.job_id)
+	submitResponse.ErrorCode = int(slres.error_code)
+	submitResponse.StepId = int(slres.step_id)
+	submitResponse.JobSubmitUserMsg = C.GoString(slres.job_submit_user_msg)
+	return submitResponse
 }
 
 func convertJobInfo(slres C.job_info_t) JobInfo {
@@ -180,6 +250,134 @@ func convertJobInfo(slres C.job_info_t) JobInfo {
 	jobInfo.WcKey = C.GoString(slres.wckey)
 	jobInfo.WorkDir = C.GoString(slres.work_dir)
 	return jobInfo
+}
+
+type SubmitResponse struct {
+	JobId            int
+	StepId           int
+	ErrorCode        int
+	JobSubmitUserMsg string
+}
+
+type JobDescriptor struct {
+	Account       string
+	AcctgFreq     string
+	AdminComment  string
+	AllocNode     string
+	AllocRespPort int
+	AllocSid      int
+	Argc          int
+	Argv          string
+	//ArrayBitmap unsafe.Pointer
+	BatchFeatures     string
+	BitFlags          int
+	BeginTime         time.Time
+	BurstBuffer       string
+	Clusters          string
+	ClusterFeatures   string
+	Comment           string
+	Contiguous        int
+	CoreSpec          int
+	CpuBind           string
+	CpuBindType       int
+	CpuFreqMin        int
+	CpuFreqMax        int
+	CpuFreqGov        int
+	CpusPerTres       string
+	CrontabEntry      unsafe.Pointer
+	Deadline          time.Time
+	DelayBoot         int
+	Dependency        string
+	EndTime           time.Time
+	Environment       string
+	EnvSize           int
+	Extra             string
+	ExcNodes          string
+	Features          string
+	FedSiblingsActive int64
+	FedSiblingsViable int64
+	GroupId           int
+	HetJobOffset      int
+	Immediate         int
+	JobId             int
+	JobIdStr          string
+	KillNodeOnFail    int
+	Licenses          string
+	MailType          int
+	MailUser          string
+	McsLabel          string
+	MemBind           string
+	MemBindType       int
+	MemPerTres        string
+	Name              string
+	Network           string
+	Nodes             string
+	Nice              int
+	NumTasks          int
+	OpenMode          int
+	OriginCluster     string
+	OtherPort         int
+	Overcommit        int
+	Partition         string
+	PlaneSize         int
+	PowerFlags        int
+	Priority          int
+	Profile           int
+	Qos               string
+	Reboot            int
+	RespHost          string
+	ReqNodes          string
+	RestartCnt        int
+	Requeue           int
+	Reservation       string
+	//Script is the execution, full batch file written to a string
+	Script    string
+	ScriptBuf unsafe.Pointer
+	//SelectJobInfo
+	Shared          int
+	SiteFactor      int
+	SpankJobEnv     string
+	SpankJobEnvSize int
+	TaskDist        int
+	TimeLimit       int
+	TimeMin         int
+	Tresbind        string
+	TresFreq        string
+	TresPerJob      string
+	TresPerNode     string
+	TresPerSocket   string
+	TresPerTask     string
+	UserId          int
+	WaitAllNodes    int
+	WarnFlags       int
+	WarnSignal      int
+	WarnTime        int
+	CpusPerTask     int
+	MinCpus         int
+	MaxCpus         int
+	MinNodes        int
+	MaxNodes        int
+	BoardsPerNode   int
+	SocketsPerBoard int
+	SocketsPerNode  int
+	CoresPerSocket  int
+	ThreadsPerCore  int
+	NTasksPerCore   int
+	NTasksPerTres   int
+	NTasksPerNode   int
+	NTasksPerSocket int
+	NTasksPerBoard  int
+	PnMinMemory     int64
+	PnMinCpus       int
+	PnMinTmpDisk    int
+	ReqSwitch       int
+	StdErr          string
+	StdIn           string
+	StdOut          string
+	TresReqCnt      int64
+	Wait4Switch     int
+	WcKey           string
+	WorkDir         string
 }
 
 type JobInfo struct {
