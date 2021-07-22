@@ -20,6 +20,7 @@ import "C"
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"strconv"
 	"time"
@@ -60,9 +61,23 @@ func submitJob(cnx *gin.Context) {
 	var jobDescriptor JobDescriptor
 	json.Unmarshal([]byte(jsonData), &jobDescriptor)
 
-	job_desc_msg := convertJobDescriptor(jobDescriptor)
-	source := []string{"PATH=/bin:/usr/bin/:/usr/local/bin/"}
+	//job_desc_msg := convertJobDescriptor(jobDescriptor)
+	var job_desc_msg C.job_desc_msg_t
+	C.slurm_init_job_desc_msg(&job_desc_msg)
+	source := []string{"SLURM_ENV_0=looking_good", "SLURM_ENV_1=still_good"}
 	job_desc_msg.environment = getCStringArray(source)
+	job_desc_msg.work_dir = C.CString("/tmp")
+	job_desc_msg.name = C.CString("test")
+	job_desc_msg.account = C.CString("test")
+	job_desc_msg.script = C.CString("#!/bin/bash\nsrun hostname")
+	job_desc_msg.std_err = C.CString("/tmp/slurm.stderr")
+	job_desc_msg.std_in = C.CString("/tmp/slurm.stdin")
+	job_desc_msg.std_out = C.CString("/tmp/slurm.stdout")
+	job_desc_msg.env_size = 2
+	job_desc_msg.user_id = 1000
+	job_desc_msg.group_id = 1000
+	fmt.Println(C.GoString(job_desc_msg.script))
+
 	var slres *C.submit_response_msg_t
 
 	ret := C.slurm_submit_batch_job(&job_desc_msg, &slres)
@@ -85,7 +100,7 @@ func getCStringArray(source []string) **C.char {
 	a := (*[1<<30 - 1]*C.char)(cArray)
 
 	for idx, val := range source {
-			a[idx] = C.CString(val)
+		a[idx] = C.CString(val)
 	}
 
 	return (**C.char)(cArray)
