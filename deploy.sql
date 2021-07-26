@@ -3,6 +3,8 @@ CREATE TABLE IF NOT EXISTS t_user (
   m_username TEXT UNIQUE
 );
 
+INSERT INTO t_user (m_username) VALUES ('DefaultUser');
+
 CREATE TABLE IF NOT EXISTS t_node (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   m_cluster_name TEXT,

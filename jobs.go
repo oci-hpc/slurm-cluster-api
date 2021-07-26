@@ -38,19 +38,8 @@ func InitializeJobsEndpoint(r *gin.Engine) {
 }
 
 func getJobsEndpoint(cnx *gin.Context) {
-	var slres *C.job_info_msg_t
-	now := time.Now().Unix()
-	ret := C.slurm_load_jobs(C.long(now-1000), &slres, 0)
-	count := int(slres.record_count)
-	jobs := convertJobInfoArray(slres.job_array, count)
-
-	if ret == 0 {
-		cnx.JSON(200, jobs)
-	} else {
-		cnx.JSON(500, gin.H{})
-	}
-
-	C.slurm_free_job_info_msg(slres)
+	jobs := queryAllJobs()
+	cnx.JSON(200, jobs)
 }
 
 func getJobInfos() (jobs []JobInfo) {
@@ -113,6 +102,7 @@ func convertJobInfoToJob(jobInfo JobInfo) (job Job) {
 }
 
 func createJobFromRequest(req JobDescriptorRequest, slurmJobId int) (job Job) {
+	job.ClusterUserId = req.ClusterUserId
 	job.JobId = slurmJobId
 	job.Script = req.Script
 	return job
@@ -447,7 +437,10 @@ func submitJob(cnx *gin.Context) {
 
 	if req.Username == "" {
 		req.Username = "DefaultUser"
+		req.ClusterUserId = 1
 	}
+	//TODO: Remove below when users are implemented
+	req.ClusterUserId = 1
 
 	pathEnv := os.Getenv("PATH")
 	pathSetString := "PATH=" + pathEnv
@@ -712,10 +705,11 @@ type Job struct {
 }
 
 type JobDescriptorRequest struct {
-	Username string
-	Account  string
-	JobName  string
-	Script   string
+	Username      string
+	ClusterUserId int
+	Account       string
+	JobName       string
+	Script        string
 }
 
 type JobDescriptor struct {
