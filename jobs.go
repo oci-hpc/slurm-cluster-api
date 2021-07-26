@@ -19,9 +19,12 @@ static void setArrayString(char **a, char *s, int n) {
 import "C"
 
 import (
+	"database/sql"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
+	"log"
+	"os"
+	"path"
 	"strconv"
 	"time"
 	"unsafe"
@@ -30,24 +33,405 @@ import (
 )
 
 func InitializeJobsEndpoint(r *gin.Engine) {
-	r.GET("/jobs", getJobs)
+	r.GET("/jobs", getJobsEndpoint)
 	r.POST("/jobs/submit", submitJob)
 }
 
-func getJobs(cnx *gin.Context) {
+func getJobsEndpoint(cnx *gin.Context) {
 	var slres *C.job_info_msg_t
 	now := time.Now().Unix()
 	ret := C.slurm_load_jobs(C.long(now-1000), &slres, 0)
 	count := int(slres.record_count)
-	nodes := convertJobInfoArray(slres.job_array, count)
+	jobs := convertJobInfoArray(slres.job_array, count)
 
 	if ret == 0 {
-		cnx.JSON(200, nodes)
+		cnx.JSON(200, jobs)
 	} else {
 		cnx.JSON(500, gin.H{})
 	}
 
 	C.slurm_free_job_info_msg(slres)
+}
+
+func getJobInfos() (jobs []JobInfo) {
+	var slres *C.job_info_msg_t
+	defer C.slurm_free_job_info_msg(slres)
+	now := time.Now().Unix()
+	ret := C.slurm_load_jobs(C.long(now-1000), &slres, 0)
+	if ret == -1 {
+		log.Printf("WARN: getJobs: error getting jobs from SLURM API")
+	}
+	count := int(slres.record_count)
+	jobs = convertJobInfoArray(slres.job_array, count)
+	return
+}
+
+func RunJobMonitor() {
+	for {
+		jobs := getJobInfos()
+		for _, job := range jobs {
+			upsertJobStatus(job)
+		}
+		time.Sleep(15 * time.Second)
+	}
+}
+
+func upsertJobStatus(jobInfo JobInfo) {
+	job := convertJobInfoToJob(jobInfo)
+	res := queryJobsBySlurmJobId(jobInfo.JobId)
+	if res.Id == 0 {
+		insertJob(job)
+	} else {
+		job.Id = res.Id
+		updateJob(job)
+	}
+}
+
+func convertJobInfoToJob(jobInfo JobInfo) (job Job) {
+	job.AccrueTime = jobInfo.AccrueTime
+	job.Command = jobInfo.Command
+	job.EligibleTime = jobInfo.EligibleTime
+	job.EndTime = jobInfo.EndTime
+	job.JobId = jobInfo.JobId
+	job.JobState = jobInfo.JobState
+	job.JobStateDescription = jobInfo.StateDesc
+	job.JobStateReason = jobInfo.StateReason
+	job.NTasksPerBoard = jobInfo.NTasksPerBoard
+	job.NTasksPerCore = jobInfo.NTasksPerCore
+	job.NTasksPerNode = jobInfo.NTasksPerNode
+	job.NTasksPerSocket = jobInfo.NTasksPerSocket
+	job.NTasksPerTres = jobInfo.NTasksPerTres
+	job.NumCpus = jobInfo.NumCpus
+	job.NumNodes = jobInfo.NumNodes
+	job.PreemptTime = jobInfo.PreemptTime
+	job.PreemptableTime = jobInfo.PreemptableTime
+	job.ResizeTime = jobInfo.ResizeTime
+	job.StartTime = jobInfo.StartTime
+	job.SuspendTime = jobInfo.SuspendTime
+	job.WorkDir = jobInfo.WorkDir
+	return job
+}
+
+func createJobFromRequest(req JobDescriptorRequest, slurmJobId int) (job Job) {
+	job.JobId = slurmJobId
+	job.Script = req.Script
+	return job
+}
+
+func convertRowsToJobs(rows *sql.Rows, jobs *[]Job) {
+	defer rows.Close()
+	if rows == nil {
+		return
+	}
+	for rows.Next() {
+		var job Job
+		err := rows.Scan(
+			&job.Id,
+			&job.JobId,
+			&job.ClusterUserId,
+			&job.AccrueTime,
+			&job.EligibleTime,
+			&job.EndTime,
+			&job.PreemptTime,
+			&job.PreemptableTime,
+			&job.ResizeTime,
+			&job.StartTime,
+			&job.SuspendTime,
+			&job.WorkDir,
+			&job.NTasksPerCore,
+			&job.NTasksPerTres,
+			&job.NTasksPerNode,
+			&job.NTasksPerSocket,
+			&job.NTasksPerBoard,
+			&job.NumCpus,
+			&job.NumNodes,
+			&job.Script,
+			&job.Command,
+			&job.JobState,
+			&job.JobStateReason,
+			&job.JobStateDescription,
+		)
+		if err != nil {
+			log.Printf("WARN: convertRowsToJobs: " + err.Error())
+		}
+		*jobs = append(*jobs, job)
+	}
+}
+
+func insertJob(job Job) {
+	sqlString := `
+		INSERT INTO t_job (
+			m_job_id,
+			m_user_id,
+			m_accrue_time,
+			m_eligible_time,
+			m_end_time,
+			m_preempt_time,
+			m_preemptable_time,
+			m_resize_time,
+			m_start_time,
+			m_suspend_time,
+			m_work_dir,
+			m_n_tasks_per_core,
+			m_n_tasks_per_tres,
+			m_n_tasks_per_node,
+			m_n_tasks_per_socket,
+			m_n_tasks_per_board,
+			m_num_cpus,
+			m_num_nodes,
+			m_script,
+			m_command,
+			m_job_state,
+			m_job_state_reason,
+			m_job_state_description
+		) values (
+			:m_job_id,
+			:m_user_id,
+			:m_accrue_time,
+			:m_eligible_time,
+			:m_end_time,
+			:m_preempt_time,
+			:m_preemptable_time,
+			:m_resize_time,
+			:m_start_time,
+			:m_suspend_time,
+			:m_work_dir,
+			:m_n_tasks_per_core,
+			:m_n_tasks_per_tres,
+			:m_n_tasks_per_node,
+			:m_n_tasks_per_socket,
+			:m_n_tasks_per_board,
+			:m_num_cpus,
+			:m_num_nodes,
+			:m_script,
+			:m_command,
+			:m_job_state,
+			:m_job_state_reason,
+			:m_job_state_description
+		)
+	`
+	db := GetDbConnection()
+	defer db.Close()
+	_, err := db.Exec(
+		sqlString,
+		sql.Named("m_job_id", job.JobId),
+		sql.Named("m_user_id", job.ClusterUserId),
+		sql.Named("m_accrue_time", job.AccrueTime),
+		sql.Named("m_eligible_time", job.EligibleTime),
+		sql.Named("m_end_time", job.EndTime),
+		sql.Named("m_preempt_time", job.PreemptTime),
+		sql.Named("m_preemptable_time", job.PreemptableTime),
+		sql.Named("m_resize_time", job.ResizeTime),
+		sql.Named("m_start_time", job.StartTime),
+		sql.Named("m_suspend_time", job.SuspendTime),
+		sql.Named("m_work_dir", job.WorkDir),
+		sql.Named("m_n_tasks_per_core", job.NTasksPerCore),
+		sql.Named("m_n_tasks_per_tres", job.NTasksPerTres),
+		sql.Named("m_n_tasks_per_node", job.NTasksPerNode),
+		sql.Named("m_n_tasks_per_socket", job.NTasksPerSocket),
+		sql.Named("m_n_tasks_per_board", job.NTasksPerBoard),
+		sql.Named("m_num_cpus", job.NumCpus),
+		sql.Named("m_num_nodes", job.NumNodes),
+		sql.Named("m_script", job.Script),
+		sql.Named("m_command", job.Command),
+		sql.Named("m_job_state", job.JobState),
+		sql.Named("m_job_state_reason", job.JobStateReason),
+		sql.Named("m_job_state_description", job.JobStateDescription),
+	)
+	if err != nil {
+		log.Printf("WARN: insertJob: " + err.Error())
+	}
+}
+
+func updateJob(job Job) {
+	sqlString := `
+		UPDATE t_job
+		SET
+			m_accrue_time = :m_accrue_time,
+			m_eligible_time = :m_eligible_time,
+			m_end_time = :m_end_time,
+			m_preempt_time = :m_preempt_time,
+			m_preemptable_time = :m_preemptable_time,
+			m_resize_time = :m_resize_time,
+			m_start_time = :m_start_time,
+			m_suspend_time = :m_suspend_time,
+			m_work_dir = :m_work_dir,
+			m_n_tasks_per_core = :m_n_tasks_per_core,
+			m_n_tasks_per_tres = :m_n_tasks_per_core,
+			m_n_tasks_per_node = :m_n_tasks_per_node,
+			m_n_tasks_per_socket = :m_n_tasks_per_socket,
+			m_n_tasks_per_board = :m_n_tasks_per_board,
+			m_num_cpus = :m_num_cpus,
+			m_num_nodes = :m_num_nodes,
+			m_command = :m_command,
+			m_job_state = :m_job_state,
+			m_job_state_reason = :m_job_state_reason,
+			m_job_state_description = :m_job_state_description
+		WHERE id = :id
+	`
+	db := GetDbConnection()
+	defer db.Close()
+	_, err := db.Exec(
+		sqlString,
+		sql.Named("m_accrue_time", job.AccrueTime),
+		sql.Named("m_eligible_time", job.EligibleTime),
+		sql.Named("m_end_time", job.EndTime),
+		sql.Named("m_preempt_time", job.PreemptTime),
+		sql.Named("m_preemptable_time", job.PreemptableTime),
+		sql.Named("m_resize_time", job.ResizeTime),
+		sql.Named("m_start_time", job.StartTime),
+		sql.Named("m_suspend_time", job.SuspendTime),
+		sql.Named("m_work_dir", job.WorkDir),
+		sql.Named("m_n_tasks_per_core", job.NTasksPerCore),
+		sql.Named("m_n_tasks_per_tres", job.NTasksPerTres),
+		sql.Named("m_n_tasks_per_node", job.NTasksPerNode),
+		sql.Named("m_n_tasks_per_socket", job.NTasksPerSocket),
+		sql.Named("m_n_tasks_per_board", job.NTasksPerBoard),
+		sql.Named("m_num_cpus", job.NumCpus),
+		sql.Named("m_num_nodes", job.NumNodes),
+		sql.Named("m_command", job.Command),
+		sql.Named("m_job_state", job.JobState),
+		sql.Named("m_job_state_reason", job.JobStateReason),
+		sql.Named("m_job_state_description", job.JobStateDescription),
+		sql.Named("id", job.Id),
+	)
+	if err != nil {
+		log.Printf("WARN: updateJob: " + err.Error())
+	}
+}
+
+func queryAllJobs() (jobs []Job) {
+	sqlString := `
+		SELECT 
+			m_job_id,
+			m_user_id,
+			m_accrue_time,
+			m_eligible_time,
+			m_end_time,
+			m_preempt_time,
+			m_preemptable_time,
+			m_resize_time,
+			m_start_time,
+			m_suspend_time,
+			m_work_dir,
+			m_n_tasks_per_core,
+			m_n_tasks_per_tres,
+			m_n_tasks_per_node,
+			m_n_tasks_per_socket,
+			m_n_tasks_per_board,
+			m_num_cpus,
+			m_num_nodes,
+			m_script,
+			m_command,
+			m_job_state,
+			m_job_state_reason,
+			m_job_state_description
+		FROM t_job;
+	`
+	db := GetDbConnection()
+	defer db.Close()
+	rows, err := db.Query(sqlString)
+	if err != nil {
+		log.Printf("WARN: queryAllJobs: " + err.Error())
+	}
+	convertRowsToJobs(rows, &jobs)
+	err = rows.Err()
+	if err != nil {
+		log.Printf("WARN: queryAllJobs: " + err.Error())
+	}
+	return jobs
+}
+
+func queryJobsByUser(clusterUserId int) (jobs []Job) {
+	sqlString := `
+		SELECT 
+		  id
+			m_job_id,
+			m_user_id,
+			m_accrue_time,
+			m_eligible_time,
+			m_end_time,
+			m_preempt_time,
+			m_preemptable_time,
+			m_resize_time,
+			m_start_time,
+			m_suspend_time,
+			m_work_dir,
+			m_n_tasks_per_core,
+			m_n_tasks_per_tres,
+			m_n_tasks_per_node,
+			m_n_tasks_per_socket,
+			m_n_tasks_per_board,
+			m_num_cpus,
+			m_num_nodes,
+			m_script,
+			m_command,
+			m_job_state,
+			m_job_state_reason,
+			m_job_state_description
+		FROM t_job
+		WHERE m_user_id = :m_user_id;
+	`
+	db := GetDbConnection()
+	defer db.Close()
+	rows, err := db.Query(sqlString, sql.Named("m_user_id", clusterUserId))
+	if err != nil {
+		log.Printf("WARN: queryJobsByUser: " + err.Error())
+	}
+	convertRowsToJobs(rows, &jobs)
+	err = rows.Err()
+	if err != nil {
+		log.Printf("WARN: queryJobsByUser: " + err.Error())
+	}
+	return jobs
+}
+
+func queryJobsBySlurmJobId(slurmJobId int) (job Job) {
+	sqlString := `
+		SELECT 
+		  id,
+			m_job_id,
+			m_user_id,
+			m_accrue_time,
+			m_eligible_time,
+			m_end_time,
+			m_preempt_time,
+			m_preemptable_time,
+			m_resize_time,
+			m_start_time,
+			m_suspend_time,
+			m_work_dir,
+			m_n_tasks_per_core,
+			m_n_tasks_per_tres,
+			m_n_tasks_per_node,
+			m_n_tasks_per_socket,
+			m_n_tasks_per_board,
+			m_num_cpus,
+			m_num_nodes,
+			m_script,
+			m_command,
+			m_job_state,
+			m_job_state_reason,
+			m_job_state_description
+		FROM t_job
+		WHERE m_job_id = :m_job_id;
+	`
+	db := GetDbConnection()
+	defer db.Close()
+	rows, err := db.Query(sqlString, sql.Named("m_job_id", slurmJobId))
+	if err != nil {
+		log.Printf("WARN: queryJobsBySlurmJobId: " + err.Error())
+	}
+	var jobs []Job
+	convertRowsToJobs(rows, &jobs)
+	err = rows.Err()
+	if err != nil {
+		log.Printf("WARN: queryJobsBySlurmJobId: " + err.Error())
+	}
+	if len(jobs) == 0 {
+		return
+	}
+	return jobs[0]
 }
 
 func submitJob(cnx *gin.Context) {
@@ -58,31 +442,49 @@ func submitJob(cnx *gin.Context) {
 		return
 	}
 
-	var jobDescriptor JobDescriptor
-	json.Unmarshal([]byte(jsonData), &jobDescriptor)
+	var req JobDescriptorRequest
+	json.Unmarshal([]byte(jsonData), &req)
+
+	if req.Username == "" {
+		req.Username = "DefaultUser"
+	}
+
+	pathEnv := os.Getenv("PATH")
+	pathSetString := "PATH=" + pathEnv
+
+	outputDirPath := os.Getenv("OUTPUT_DIR")
+	outputUserPath := path.Join(outputDirPath, req.Username)
+
+	if _, err := os.Stat(outputUserPath); os.IsNotExist(err) {
+		err = os.Mkdir(outputUserPath, 0755)
+		if err != nil {
+			print("WARN: submitJob: " + err.Error())
+			cnx.JSON(500, "Error creating path for user")
+			return
+		}
+	}
 
 	//job_desc_msg := convertJobDescriptor(jobDescriptor)
 	var job_desc_msg C.job_desc_msg_t
 	C.slurm_init_job_desc_msg(&job_desc_msg)
-	source := []string{"SLURM_ENV_0=looking_good", "SLURM_ENV_1=still_good"}
+	source := []string{pathSetString}
+	job_desc_msg.env_size = C.uint(len(source))
 	job_desc_msg.environment = getCStringArray(source)
-	job_desc_msg.work_dir = C.CString("/tmp")
-	job_desc_msg.name = C.CString("test")
-	job_desc_msg.account = C.CString("test")
-	job_desc_msg.script = C.CString("#!/bin/bash\nsrun hostname")
-	job_desc_msg.std_err = C.CString("/tmp/slurm.stderr")
-	job_desc_msg.std_in = C.CString("/tmp/slurm.stdin")
-	job_desc_msg.std_out = C.CString("/tmp/slurm.stdout")
-	job_desc_msg.env_size = 2
+	job_desc_msg.work_dir = C.CString(outputUserPath)
+	job_desc_msg.name = C.CString(req.JobName)
+	job_desc_msg.account = C.CString(req.Account)
+	job_desc_msg.script = C.CString(req.Script)
 	job_desc_msg.user_id = 1000
 	job_desc_msg.group_id = 1000
-	fmt.Println(C.GoString(job_desc_msg.script))
 
 	var slres *C.submit_response_msg_t
+	defer C.slurm_free_submit_response_response_msg(slres)
 
 	ret := C.slurm_submit_batch_job(&job_desc_msg, &slres)
 	if ret == 0 {
 		res := convertSubmitResponse(slres)
+		job := createJobFromRequest(req, res.JobId)
+		insertJob(job)
 		cnx.JSON(200, res)
 	} else {
 		errno := C.slurm_get_errno()
@@ -90,7 +492,6 @@ func submitJob(cnx *gin.Context) {
 		cnx.JSON(500, errno_str)
 	}
 
-	C.slurm_free_submit_response_response_msg(slres)
 }
 
 func getCStringArray(source []string) **C.char {
@@ -267,11 +668,54 @@ func convertJobInfo(slres C.job_info_t) JobInfo {
 	return jobInfo
 }
 
+type JobAllocationRequest struct {
+	JobId      int
+	SubmitTime time.Time
+	OutputPath string
+	JobName    string
+	Account    string
+	Script     string
+}
+
 type SubmitResponse struct {
 	JobId            int
 	StepId           int
 	ErrorCode        int
 	JobSubmitUserMsg string
+}
+
+type Job struct {
+	Id                  int
+	JobId               int
+	ClusterUserId       int
+	AccrueTime          time.Time
+	EligibleTime        time.Time
+	EndTime             time.Time
+	PreemptTime         time.Time
+	PreemptableTime     time.Time
+	ResizeTime          time.Time
+	StartTime           time.Time
+	SuspendTime         time.Time
+	WorkDir             string
+	NTasksPerCore       int
+	NTasksPerTres       int
+	NTasksPerNode       int
+	NTasksPerSocket     int
+	NTasksPerBoard      int
+	NumCpus             int
+	NumNodes            int
+	Script              string
+	Command             string
+	JobState            int
+	JobStateReason      int
+	JobStateDescription string
+}
+
+type JobDescriptorRequest struct {
+	Username string
+	Account  string
+	JobName  string
+	Script   string
 }
 
 type JobDescriptor struct {
@@ -362,7 +806,8 @@ type JobDescriptor struct {
 	TresPerNode     string
 	TresPerSocket   string
 	TresPerTask     string
-	UserId          int
+	ClusterUserId   int
+	SlurmUserId     int
 	WaitAllNodes    int
 	WarnFlags       int
 	WarnSignal      int
