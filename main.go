@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -17,8 +18,18 @@ func main() {
 	initResultsFolder()
 
 	r := gin.Default()
+	// - No origin allowed by default
+	// - GET,POST, PUT, HEAD methods
+	// - Credentials share disabled
+	// - Preflight requests cached for 12 hours
+	config := cors.DefaultConfig()
+	config.AllowAllOrigins = true
+	// config.AllowOrigins == []string{"http://google.com", "http://facebook.com"}
+
+	r.Use(cors.New(config))
+
 	initialize(r)
-	r.Run() // listen and serve on 0.0.0.0:8080 (for windows "localhost:8080")
+	r.Run("0.0.0.0:8000") // listen and serve on 0.0.0.0:8080 (for windows "localhost:8080")
 }
 
 func initialize(r *gin.Engine) {
