@@ -13,8 +13,7 @@
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
-no
-src
+slurm-cluster-api
 
 .vscode/
 *.db
