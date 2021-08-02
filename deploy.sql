@@ -52,3 +52,19 @@ CREATE TABLE IF NOT EXISTS t_job (
   m_job_state_description TEXT,
   FOREIGN KEY (m_user_id) REFERENCES t_user (id)
 );
+
+CREATE TABLE IF NOT EXISTS t_template {
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  m_body TEXT
+}
+
+CREATE TABLE IF NOT EXISTS t_template_variables {
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  m_key TEXT,
+  m_template_id INTEGER,
+  FOREIGN KEY (m_template_id) REFERENCES t_template (id)
+}
+
+CREATE TABLE IF NOT EXISTS t_configuration {
+  m_oci_region
+}
