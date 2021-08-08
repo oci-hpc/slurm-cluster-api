@@ -56,6 +56,11 @@ type JobDescriptorRequest struct {
 	Script        string
 }
 
+type TemplateJobSubmitRequest struct {
+	TemplateId int
+	KeyValues  map[string]string
+}
+
 type JobDescriptor struct {
 	Account       string
 	AcctgFreq     string

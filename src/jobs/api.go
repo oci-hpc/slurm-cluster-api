@@ -19,24 +19,60 @@ static void setArrayString(char **a, char *s, int n) {
 import "C"
 
 import (
+	"bytes"
 	"encoding/json"
 	"io/ioutil"
 	"os"
 	"path"
 	"strconv"
+	"strings"
+	"text/template"
+	"time"
 	"unsafe"
 
 	"github.com/gin-gonic/gin"
+	templateRepo "github.com/oci-hpc/slurm-cluster-api/src/template"
 )
 
 func InitializeJobsEndpoint(r *gin.Engine) {
 	r.GET("/jobs", getJobsEndpoint)
 	r.POST("/jobs/submit", submitJob)
+	r.POST("/jobs/submit/template", templateJobSubmit)
 }
 
 func getJobsEndpoint(cnx *gin.Context) {
 	jobs := queryAllJobs()
 	cnx.JSON(200, jobs)
+}
+
+func templateJobSubmit(cnx *gin.Context) {
+	jsonData, err := ioutil.ReadAll(cnx.Request.Body)
+
+	if err != nil {
+		cnx.JSON(400, err.Error())
+		return
+	}
+
+	var req TemplateJobSubmitRequest
+	json.Unmarshal([]byte(jsonData), &req)
+
+	selectedTemplate := templateRepo.QueryTemplateById(req.TemplateId)
+
+	t := template.Must(template.New("t2").Parse(selectedTemplate.Body))
+	var result string
+	buf := bytes.NewBufferString(result)
+	for key, value := range req.KeyValues {
+		req.KeyValues[strings.ToLower(key)] = value
+	}
+	t.Execute(buf, req.KeyValues)
+	var jobReq JobDescriptorRequest
+	jobReq.Account = "test"
+	jobReq.Username = "DefaultUser"
+	jobReq.ClusterUserId = 1
+	jobReq.Script = buf.String()
+	slurmSubmitJob(cnx, jobReq)
+	//Pass in a map[string]string with keys in lowercase
+	//t.Execute(os.Stdout, passIn)
 }
 
 func submitJob(cnx *gin.Context) {
@@ -50,6 +86,10 @@ func submitJob(cnx *gin.Context) {
 	var req JobDescriptorRequest
 	json.Unmarshal([]byte(jsonData), &req)
 
+	slurmSubmitJob(cnx, req)
+}
+
+func slurmSubmitJob(cnx *gin.Context, req JobDescriptorRequest) {
 	if req.Username == "" {
 		req.Username = "DefaultUser"
 		req.ClusterUserId = 1
@@ -71,6 +111,10 @@ func submitJob(cnx *gin.Context) {
 			return
 		}
 	}
+	outputWorkDir, err := createOutputDirectory(req.Username)
+	if err != nil {
+		cnx.JSON(500, "Error creating results save path")
+	}
 
 	//job_desc_msg := convertJobDescriptor(jobDescriptor)
 	var job_desc_msg C.job_desc_msg_t
@@ -78,7 +122,7 @@ func submitJob(cnx *gin.Context) {
 	source := []string{pathSetString}
 	job_desc_msg.env_size = C.uint(len(source))
 	job_desc_msg.environment = getCStringArray(source)
-	job_desc_msg.work_dir = C.CString(outputUserPath)
+	job_desc_msg.work_dir = C.CString(outputWorkDir)
 	job_desc_msg.name = C.CString(req.JobName)
 	job_desc_msg.account = C.CString(req.Account)
 	job_desc_msg.script = C.CString(req.Script)
@@ -99,7 +143,45 @@ func submitJob(cnx *gin.Context) {
 		errno_str := "SLURM-" + strconv.Itoa(int(errno)) + " " + C.GoString(C.slurm_strerror(errno))
 		cnx.JSON(500, errno_str)
 	}
+}
 
+func createOutputDirectory(username string) (ouputDirectoryPath string, err error) {
+	dateString := time.Now().Format("2006-01-02")
+
+	outputDirPath := os.Getenv("OUTPUT_DIR")
+	outputUserDatePath := path.Join(outputDirPath, username, dateString)
+
+	if _, err = os.Stat(outputUserDatePath); os.IsNotExist(err) {
+		err = os.Mkdir(outputUserDatePath, 0755)
+		if err != nil {
+			print("WARN: createOutputDirectory: " + err.Error())
+			return
+		}
+	}
+
+	fileCount, err := countDirectoryFiles(outputUserDatePath)
+	if err != nil {
+		print("WARN: createOutputDirectory: " + err.Error())
+	}
+	fileCount = fileCount + 1
+
+	ouputDirectoryPath = path.Join(outputUserDatePath, strconv.Itoa(fileCount))
+	err = os.Mkdir(ouputDirectoryPath, 0755)
+	if err != nil {
+		print("WARN: createOutputDirectory: " + err.Error())
+		return
+	}
+
+	return
+}
+
+func countDirectoryFiles(path string) (files int, err error) {
+	d, err := os.ReadDir(path)
+	if err != nil {
+		return
+	}
+	files = len(d)
+	return
 }
 
 func createJobFromRequest(req JobDescriptorRequest, slurmJobId int) (job Job) {

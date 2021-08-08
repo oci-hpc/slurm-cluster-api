@@ -13,7 +13,7 @@ import (
 func InitializeResultsEndpoint(r *gin.Engine) {
 	r.POST("/results", getResults)
 	r.POST("/results/files", getFiles)
-	r.POST("/results/folders", getFolders)
+	r.GET("/results/folders", getFolders)
 }
 
 func getResults(cnx *gin.Context) {
@@ -36,15 +36,22 @@ func getResults(cnx *gin.Context) {
 		return
 	}
 
-	outputDirPath := os.Getenv("OUTPUT_DIR")
-	outputUserPath := path.Join(outputDirPath, req.Username)
 	outputFileName := "slurm-" + strconv.Itoa(req.JobId) + ".out"
-	outputFile := path.Join(outputUserPath + "/" + outputFileName)
+	outputFile := path.Join(req.WorkDir, outputFileName)
 	dat, err := ioutil.ReadFile(outputFile)
 	if err != nil {
 		print(err.Error())
 		cnx.JSON(500, "Error reading results file")
 		return
+	}
+
+	files, _ := ioutil.ReadDir(req.WorkDir)
+	var filesResp []ResultsFile
+	for _, file := range files {
+		var fileResp ResultsFile
+		fileResp.FileName = file.Name()
+		fileResp.Path = path.Join(req.WorkDir, file.Name())
+		filesResp = append(filesResp, fileResp)
 	}
 
 	var resp ResultsResponse
@@ -53,6 +60,7 @@ func getResults(cnx *gin.Context) {
 	resp.AbsolutePath = outputFile
 	resp.FileName = outputFileName
 	resp.Body = string(dat)
+	resp.Files = filesResp
 
 	cnx.JSON(200, resp)
 }
@@ -68,9 +76,7 @@ func getFiles(cnx *gin.Context) {
 	var req ResultsRequest
 	json.Unmarshal([]byte(jsonData), &req)
 
-	outputDirPath := os.Getenv("OUTPUT_DIR")
-	outputUserPath := path.Join(outputDirPath, req.Username)
-	files, err := ioutil.ReadDir(outputUserPath)
+	files, err := ioutil.ReadDir(req.WorkDir)
 	if err != nil {
 		print(err.Error())
 		cnx.JSON(500, "Error reading user directory")
@@ -88,27 +94,54 @@ func getFiles(cnx *gin.Context) {
 }
 
 func getFolders(cnx *gin.Context) {
+	var directoryTreeNode []DirectoryTreeNode
 	outputDirPath := os.Getenv("OUTPUT_DIR")
 
 	files, err := ioutil.ReadDir(outputDirPath)
 	if err != nil {
-		print(err.Error())
-		cnx.JSON(500, "Error reading output directory")
+		print("WARN: getFolders: " + err.Error())
 		return
 	}
 
-	var folders []string
 	for _, file := range files {
 		if file.IsDir() {
-			folders = append(folders, file.Name())
+			var userFolder DirectoryTreeNode
+			var userFolderPath = path.Join(outputDirPath, file.Name())
+			recurseDirectory(userFolderPath, &userFolder)
+			userFolder.Label = file.Name()
+			userFolder.Path = userFolderPath
+			userFolder.IsDir = true
+			directoryTreeNode = append(directoryTreeNode, userFolder)
 		}
 	}
 
-	cnx.JSON(200, folders)
+	cnx.JSON(200, directoryTreeNode)
+}
+
+func recurseDirectory(parentPath string, parent *DirectoryTreeNode) (err error) {
+	files, err := ioutil.ReadDir(parentPath)
+	if err != nil {
+		print("WARN: recurseDirectory: " + err.Error())
+		return
+	}
+
+	for _, file := range files {
+		var child DirectoryTreeNode
+		var childPath = path.Join(parentPath, file.Name())
+		if file.IsDir() {
+			recurseDirectory(childPath, &child)
+			child.IsDir = true
+		}
+		child.Label = file.Name()
+		child.Path = childPath
+		parent.Children = append(parent.Children, child)
+	}
+	return
 }
 
 type ResultsRequest struct {
 	JobId    int
+	WorkDir  string
 	Username string
 }
 
@@ -118,4 +151,17 @@ type ResultsResponse struct {
 	Username     string
 	AbsolutePath string
 	Body         string
+	Files        []ResultsFile
+}
+
+type ResultsFile struct {
+	FileName string
+	Path     string
+}
+
+type DirectoryTreeNode struct {
+	Label    string
+	Path     string
+	Children []DirectoryTreeNode
+	IsDir    bool
 }

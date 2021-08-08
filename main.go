@@ -3,13 +3,13 @@ package main
 import (
 	"log"
 	"os"
-	"path"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 
 	db "github.com/oci-hpc/slurm-cluster-api/src/database"
+	download "github.com/oci-hpc/slurm-cluster-api/src/download"
 	jobs "github.com/oci-hpc/slurm-cluster-api/src/jobs"
 	nodes "github.com/oci-hpc/slurm-cluster-api/src/nodes"
 	results "github.com/oci-hpc/slurm-cluster-api/src/results"
@@ -44,6 +44,7 @@ func initialize(r *gin.Engine) {
 	jobs.InitializeJobsEndpoint(r)
 	results.InitializeResultsEndpoint(r)
 	template.InitializeTemplateEndpoint(r)
+	download.InitializeDownloadEndpoint(r)
 	db.InitDatabase()
 	go nodes.RunNodeMonitor()
 	go jobs.RunJobMonitor()
@@ -64,12 +65,12 @@ func initResultsFolder() {
 		}
 	}
 
-	outputJobsDir := path.Join(outputDirPath, "/jobs")
+	/*outputJobsDir := path.Join(outputDirPath, "/jobs")
 	if _, err := os.Stat(outputJobsDir); os.IsNotExist(err) {
 		err = os.Mkdir(outputJobsDir, 0755)
 		if err != nil {
 			print("ERROR: initResultsFolder: Cannot create jobs directory")
 			log.Fatal(err.Error())
 		}
-	}
+	}*/
 }
