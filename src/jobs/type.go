@@ -14,6 +14,13 @@ type JobAllocationRequest struct {
 	Script     string
 }
 
+type JobTemplateSubmission struct {
+	Id                int
+	JobId             int
+	TemplateId        int
+	TemplateKeyValues map[string]string
+}
+
 type SubmitResponse struct {
 	JobId            int
 	StepId           int
@@ -22,30 +29,31 @@ type SubmitResponse struct {
 }
 
 type Job struct {
-	Id                  int
-	JobId               int
-	ClusterUserId       int
-	AccrueTime          time.Time
-	EligibleTime        time.Time
-	EndTime             time.Time
-	PreemptTime         time.Time
-	PreemptableTime     time.Time
-	ResizeTime          time.Time
-	StartTime           time.Time
-	SuspendTime         time.Time
-	WorkDir             string
-	NTasksPerCore       int
-	NTasksPerTres       int
-	NTasksPerNode       int
-	NTasksPerSocket     int
-	NTasksPerBoard      int
-	NumCpus             int
-	NumNodes            int
-	Script              string
-	Command             string
-	JobState            int
-	JobStateReason      int
-	JobStateDescription string
+	Id                    int
+	JobId                 int
+	ClusterUserId         int
+	AccrueTime            time.Time
+	EligibleTime          time.Time
+	EndTime               time.Time
+	PreemptTime           time.Time
+	PreemptableTime       time.Time
+	ResizeTime            time.Time
+	StartTime             time.Time
+	SuspendTime           time.Time
+	WorkDir               string
+	NTasksPerCore         int
+	NTasksPerTres         int
+	NTasksPerNode         int
+	NTasksPerSocket       int
+	NTasksPerBoard        int
+	NumCpus               int
+	NumNodes              int
+	Script                string
+	Command               string
+	JobState              int
+	JobStateReason        int
+	JobStateDescription   string
+	JobTemplateSubmission int
 }
 
 type JobDescriptorRequest struct {

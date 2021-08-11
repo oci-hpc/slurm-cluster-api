@@ -36,6 +36,7 @@ import (
 
 func InitializeJobsEndpoint(r *gin.Engine) {
 	r.GET("/jobs", getJobsEndpoint)
+	r.GET("/jobs/template", getJobsTemplateSubmit)
 	r.POST("/jobs/submit", submitJob)
 	r.POST("/jobs/submit/template", templateJobSubmit)
 }
@@ -43,6 +44,19 @@ func InitializeJobsEndpoint(r *gin.Engine) {
 func getJobsEndpoint(cnx *gin.Context) {
 	jobs := queryAllJobs()
 	cnx.JSON(200, jobs)
+}
+
+func getJobsTemplateSubmit(cnx *gin.Context) {
+	query := cnx.Request.URL.Query()
+	if val, ok := query["id"]; ok || len(val) > 0 {
+		intVal, err := strconv.Atoi(val[0])
+		if err != nil {
+			cnx.JSON(400, "Invalid value for id")
+		}
+		jobs := queryJobTemplateSubmission(intVal)
+		cnx.JSON(200, jobs)
+	}
+	cnx.JSON(400, "id field is required")
 }
 
 func templateJobSubmit(cnx *gin.Context) {
@@ -66,10 +80,10 @@ func templateJobSubmit(cnx *gin.Context) {
 	}
 	t.Execute(buf, req.KeyValues)
 	var jobReq JobDescriptorRequest
-	jobReq.Account = "test"
-	jobReq.Username = "DefaultUser"
-	jobReq.ClusterUserId = 1
 	jobReq.Script = buf.String()
+	print(jobReq.Script)
+	jobReq.Account = "default"
+	jobReq.JobName = "test-job"
 	slurmSubmitJob(cnx, jobReq)
 	//Pass in a map[string]string with keys in lowercase
 	//t.Execute(os.Stdout, passIn)
@@ -98,7 +112,7 @@ func slurmSubmitJob(cnx *gin.Context, req JobDescriptorRequest) {
 	req.ClusterUserId = 1
 
 	pathEnv := os.Getenv("PATH")
-	pathSetString := "PATH=" + pathEnv
+	pathSetString := "PATH=/usr:" + pathEnv
 
 	outputDirPath := os.Getenv("OUTPUT_DIR")
 	outputUserPath := path.Join(outputDirPath, req.Username)
@@ -120,6 +134,7 @@ func slurmSubmitJob(cnx *gin.Context, req JobDescriptorRequest) {
 	var job_desc_msg C.job_desc_msg_t
 	C.slurm_init_job_desc_msg(&job_desc_msg)
 	source := []string{pathSetString}
+	print(pathSetString)
 	job_desc_msg.env_size = C.uint(len(source))
 	job_desc_msg.environment = getCStringArray(source)
 	job_desc_msg.work_dir = C.CString(outputWorkDir)

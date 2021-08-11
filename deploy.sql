@@ -50,21 +50,45 @@ CREATE TABLE IF NOT EXISTS t_job (
   m_job_state INT,
   m_job_state_reason INT,
   m_job_state_description TEXT,
-  FOREIGN KEY (m_user_id) REFERENCES t_user (id)
+  FOREIGN KEY (m_user_id) REFERENCES t_user (id) ON DELETE CASCADE,
+  UNIQUE(m_job_id, m_accrue_time)
+);
+
+CREATE TABLE IF NOT EXISTS t_job_template_submission (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  m_job_id INTEGER,
+  m_template_id INTEGER,
+  m_template_key_values TEXT,
+  FOREIGN KEY (m_job_id) REFERENCES t_job (id) ON DELETE CASCADE,
+  FOREIGN KEY (m_template_id) REFERENCES t_template (id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS t_template (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   m_body TEXT,
-  m_name TEXT UNIQUE
+  m_name TEXT UNIQUE,
+  m_description TEXT,
+  m_version INTEGER,
+  m_is_published BOOLEAN,
+  m_original_id INTEGER REFERENCES t_template (id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS t_template_keys (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   m_key TEXT,
+  m_type TEXT,
+  m_description TEXT,
   m_template_id INTEGER,
-  FOREIGN KEY (m_template_id) REFERENCES t_template (id),
+  FOREIGN KEY (m_template_id) REFERENCES t_template (id) ON DELETE CASCADE,
   UNIQUE(m_key, m_template_id)
+);
+
+CREATE TABLE IF NOT EXISTS t_template_keys_picklist (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  m_template_keys_id INTEGER,
+  m_value TEXT,
+  FOREIGN KEY (m_template_keys_id) REFERENCES t_template_keys (id) ON DELETE CASCADE
+  UNIQUE(m_value, m_template_keys_id)
 );
 
 CREATE TABLE IF NOT EXISTS t_configuration (

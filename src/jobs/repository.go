@@ -19,12 +19,13 @@ func upsertJobStatus(jobInfo JobInfo) {
 }
 
 func convertRowsToJobs(rows *sql.Rows, jobs *[]Job) {
-	defer rows.Close()
 	if rows == nil {
 		return
 	}
+	defer rows.Close()
 	for rows.Next() {
 		var job Job
+		var nullTemplateSubmissionId sql.NullInt32
 		err := rows.Scan(
 			&job.Id,
 			&job.JobId,
@@ -50,12 +51,79 @@ func convertRowsToJobs(rows *sql.Rows, jobs *[]Job) {
 			&job.JobState,
 			&job.JobStateReason,
 			&job.JobStateDescription,
+			&nullTemplateSubmissionId,
 		)
 		if err != nil {
 			log.Printf("WARN: convertRowsToJobs: " + err.Error())
 		}
+		if nullTemplateSubmissionId.Valid {
+			job.JobTemplateSubmission = int(nullTemplateSubmissionId.Int32)
+		}
 		*jobs = append(*jobs, job)
 	}
+}
+
+func insertJobTemplateSubmission(submission JobTemplateSubmission) {
+	sqlString := `
+		INSERT INTO t_job_template_submission (
+			m_job_id,
+			m_template_id,
+			m_template_key_values
+		) VALUES (
+			:m_job_id,
+			:m_template_id,
+			:m_template_key_values
+		)
+	`
+	db := db.GetDbConnection()
+	defer db.Close()
+	_, err := db.Exec(
+		sqlString,
+		sql.Named("m_job_id", submission.JobId),
+		sql.Named("m_template_id", submission.TemplateId),
+		sql.Named("m_template_key_values", submission.TemplateKeyValues),
+	)
+	if err != nil {
+		log.Printf("WARN: insertJobTemplateSubmission: " + err.Error())
+	}
+
+}
+
+func queryJobTemplateSubmission(id int) (jobTemplateSubmission JobTemplateSubmission) {
+	sqlString := `
+		SELECT 
+		  id,
+			m_job_id,
+			m_template_id,
+			m_template_key_values
+		FROM t_job_template_submission
+		WHERE id = :id
+	`
+	db := db.GetDbConnection()
+	defer db.Close()
+	rows, err := db.Query(
+		sqlString,
+		sql.Named("id", id),
+	)
+	if err != nil {
+		log.Printf("WARN: queryJobTemplateSubmission: " + err.Error())
+	}
+	defer rows.Close()
+	if rows == nil {
+		return
+	}
+	for rows.Next() {
+		err := rows.Scan(
+			&jobTemplateSubmission.Id,
+			&jobTemplateSubmission.JobId,
+			&jobTemplateSubmission.TemplateId,
+			&jobTemplateSubmission.TemplateKeyValues,
+		)
+		if err != nil {
+			log.Printf("WARN: queryJobTemplateSubmission: " + err.Error())
+		}
+	}
+	return jobTemplateSubmission
 }
 
 func insertJob(job Job) {
@@ -203,38 +271,43 @@ func updateJob(job Job) {
 func queryAllJobs() (jobs []Job) {
 	sqlString := `
 		SELECT
-		  id, 
-			m_job_id,
-			m_user_id,
-			m_accrue_time,
-			m_eligible_time,
-			m_end_time,
-			m_preempt_time,
-			m_preemptable_time,
-			m_resize_time,
-			m_start_time,
-			m_suspend_time,
-			m_work_dir,
-			m_n_tasks_per_core,
-			m_n_tasks_per_tres,
-			m_n_tasks_per_node,
-			m_n_tasks_per_socket,
-			m_n_tasks_per_board,
-			m_num_cpus,
-			m_num_nodes,
-			m_script,
-			m_command,
-			m_job_state,
-			m_job_state_reason,
-			m_job_state_description
+			t_job.id,
+			t_job.m_job_id,
+			t_job.m_user_id,
+			t_job.m_accrue_time,
+			t_job.m_eligible_time,
+			t_job.m_end_time,
+			t_job.m_preempt_time,
+			t_job.m_preemptable_time,
+			t_job.m_resize_time,
+			t_job.m_start_time,
+			t_job.m_suspend_time,
+			t_job.m_work_dir,
+			t_job.m_n_tasks_per_core,
+			t_job.m_n_tasks_per_tres,
+			t_job.m_n_tasks_per_node,
+			t_job.m_n_tasks_per_socket,
+			t_job.m_n_tasks_per_board,
+			t_job.m_num_cpus,
+			t_job.m_num_nodes,
+			t_job.m_script,
+			t_job.m_command,
+			t_job.m_job_state,
+			t_job.m_job_state_reason,
+			t_job.m_job_state_description,
+			t_job_template_submission.id
 		FROM t_job
-		ORDER BY id DESC;
+		LEFT JOIN t_job_template_submission ON t_job_template_submission.m_job_id = t_job.id
+		ORDER BY t_job.id DESC;
 	`
 	db := db.GetDbConnection()
 	defer db.Close()
 	rows, err := db.Query(sqlString)
 	if err != nil {
 		log.Printf("WARN: queryAllJobs: " + err.Error())
+	}
+	if rows == nil {
+		return jobs
 	}
 	convertRowsToJobs(rows, &jobs)
 	err = rows.Err()
@@ -247,31 +320,33 @@ func queryAllJobs() (jobs []Job) {
 func queryJobsByUser(clusterUserId int) (jobs []Job) {
 	sqlString := `
 		SELECT 
-		  id
-			m_job_id,
-			m_user_id,
-			m_accrue_time,
-			m_eligible_time,
-			m_end_time,
-			m_preempt_time,
-			m_preemptable_time,
-			m_resize_time,
-			m_start_time,
-			m_suspend_time,
-			m_work_dir,
-			m_n_tasks_per_core,
-			m_n_tasks_per_tres,
-			m_n_tasks_per_node,
-			m_n_tasks_per_socket,
-			m_n_tasks_per_board,
-			m_num_cpus,
-			m_num_nodes,
-			m_script,
-			m_command,
-			m_job_state,
-			m_job_state_reason,
-			m_job_state_description
+			t_job.id,
+			t_job.m_job_id,
+			t_job.m_user_id,
+			t_job.m_accrue_time,
+			t_job.m_eligible_time,
+			t_job.m_end_time,
+			t_job.m_preempt_time,
+			t_job.m_preemptable_time,
+			t_job.m_resize_time,
+			t_job.m_start_time,
+			t_job.m_suspend_time,
+			t_job.m_work_dir,
+			t_job.m_n_tasks_per_core,
+			t_job.m_n_tasks_per_tres,
+			t_job.m_n_tasks_per_node,
+			t_job.m_n_tasks_per_socket,
+			t_job.m_n_tasks_per_board,
+			t_job.m_num_cpus,
+			t_job.m_num_nodes,
+			t_job.m_script,
+			t_job.m_command,
+			t_job.m_job_state,
+			t_job.m_job_state_reason,
+			t_job.m_job_state_description,
+			t_job_template_submission.id
 		FROM t_job
+		LEFT JOIN t_job_template_submission ON t_job_template_submission.m_job_id = t_job.id
 		WHERE m_user_id = :m_user_id;
 	`
 	db := db.GetDbConnection()
@@ -291,32 +366,34 @@ func queryJobsByUser(clusterUserId int) (jobs []Job) {
 func queryJobsBySlurmJobId(slurmJobId int) (job Job) {
 	sqlString := `
 		SELECT 
-		  id,
-			m_job_id,
-			m_user_id,
-			m_accrue_time,
-			m_eligible_time,
-			m_end_time,
-			m_preempt_time,
-			m_preemptable_time,
-			m_resize_time,
-			m_start_time,
-			m_suspend_time,
-			m_work_dir,
-			m_n_tasks_per_core,
-			m_n_tasks_per_tres,
-			m_n_tasks_per_node,
-			m_n_tasks_per_socket,
-			m_n_tasks_per_board,
-			m_num_cpus,
-			m_num_nodes,
-			m_script,
-			m_command,
-			m_job_state,
-			m_job_state_reason,
-			m_job_state_description
+		  t_job.id,
+			t_job.m_job_id,
+			t_job.m_user_id,
+			t_job.m_accrue_time,
+			t_job.m_eligible_time,
+			t_job.m_end_time,
+			t_job.m_preempt_time,
+			t_job.m_preemptable_time,
+			t_job.m_resize_time,
+			t_job.m_start_time,
+			t_job.m_suspend_time,
+			t_job.m_work_dir,
+			t_job.m_n_tasks_per_core,
+			t_job.m_n_tasks_per_tres,
+			t_job.m_n_tasks_per_node,
+			t_job.m_n_tasks_per_socket,
+			t_job.m_n_tasks_per_board,
+			t_job.m_num_cpus,
+			t_job.m_num_nodes,
+			t_job.m_script,
+			t_job.m_command,
+			t_job.m_job_state,
+			t_job.m_job_state_reason,
+			t_job.m_job_state_description,
+			t_job_template_submission.id
 		FROM t_job
-		WHERE m_job_id = :m_job_id;
+		LEFT JOIN t_job_template_submission ON t_job_template_submission.m_job_id = t_job.id
+		WHERE t_job.m_job_id = :m_job_id;
 	`
 	db := db.GetDbConnection()
 	defer db.Close()

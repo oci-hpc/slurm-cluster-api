@@ -3,6 +3,7 @@ package template
 import (
 	"database/sql"
 	"log"
+	"strings"
 
 	db "github.com/oci-hpc/slurm-cluster-api/src/database"
 )
@@ -16,24 +17,61 @@ func convertRowsToTemplates(rows *sql.Rows, templates *[]SlurmTemplate) {
 	internalTemplates := []SlurmTemplate{}
 	for rows.Next() {
 		template := SlurmTemplate{}
+		//templateKeys := []TemplateKey{}
+		templateKey := TemplateKey{}
 		templateId := 0
-		var key string
 		err := rows.Scan(
 			&template.Id,
 			&template.Body,
 			&template.Name,
-			&key,
+			&template.Description,
+			&template.Version,
+			&template.IsPublished,
+			&template.OriginalId,
+			&templateKey.Id,
+			&templateKey.Key,
+			&templateKey.Type,
+			&templateKey.Description,
 			&templateId,
 		)
 		if err != nil {
 			log.Printf("WARN: convertRowsToTemplates: " + err.Error())
 		}
+		//TODO: Doing this here is probably bad form
+		if strings.ToUpper(templateKey.Type) == "PICKLIST" {
+			templateKey.Picklist = []string{}
+			pickSql := `
+				SELECT 
+				  m_value
+				FROM t_template_keys_picklist 
+				WHERE m_template_keys_id = :m_template_keys_id
+			`
+			db := db.GetDbConnection()
+			defer db.Close()
+			keyRows, err := db.Query(
+				pickSql,
+				sql.Named("m_template_keys_id", templateKey.Id),
+			)
+			var pickValue string
+			for keyRows.Next() {
+				err := keyRows.Scan(
+					&pickValue,
+				)
+				if err != nil {
+					log.Printf("WARN: convertRowsToTemplates: " + err.Error())
+				}
+				templateKey.Picklist = append(templateKey.Picklist, pickValue)
+			}
+			if err != nil {
+				log.Printf("WARN: convertRowsToTemplates: " + err.Error())
+			}
+		}
 		var lengthTemplates = len(internalTemplates)
 		if lengthTemplates == 0 || internalTemplates[lengthTemplates-1].Id != template.Id {
-			template.Keys = []string{key}
+			template.Keys = []TemplateKey{templateKey}
 			internalTemplates = append(internalTemplates, template)
 		} else {
-			internalTemplates[lengthTemplates-1].Keys = append(internalTemplates[lengthTemplates-1].Keys, key)
+			internalTemplates[lengthTemplates-1].Keys = append(internalTemplates[lengthTemplates-1].Keys, templateKey)
 		}
 	}
 	*templates = internalTemplates
@@ -44,10 +82,18 @@ func insertTemplate(template SlurmTemplate) {
 	sqlString := `
 		INSERT INTO t_template (
 			m_body,
-			m_name
+			m_name,
+			m_description,
+			m_version,
+			m_is_published,
+			m_original_id
 		) VALUES (
 			:m_body,
-			:m_name
+			:m_name,
+			:m_description,
+			:m_version,
+			:m_is_published,
+			:m_original_id
 		)
 	`
 	db := db.GetDbConnection()
@@ -56,6 +102,10 @@ func insertTemplate(template SlurmTemplate) {
 		sqlString,
 		sql.Named("m_body", template.Body),
 		sql.Named("m_name", template.Name),
+		sql.Named("m_description", template.Description),
+		sql.Named("m_version", template.Version),
+		sql.Named("m_is_published", template.IsPublished),
+		sql.Named("m_original_id", template.OriginalId),
 	)
 	if err != nil {
 		log.Printf("WARN: insertTemplate: " + err.Error())
@@ -65,9 +115,13 @@ func insertTemplate(template SlurmTemplate) {
 	sqlString = `
 		INSERT INTO t_template_keys (
 			m_key,
+			m_type,
+			m_description,
 			m_template_id
 		) VALUES (
 			:m_key,
+			:m_type,
+			:m_description,
 			:m_template_id
 		)
 	`
@@ -77,11 +131,45 @@ func insertTemplate(template SlurmTemplate) {
 		return
 	}
 	for _, key := range template.Keys {
-		_, err = db.Exec(
+		keyRes, err := db.Exec(
 			sqlString,
-			sql.Named("m_key", key),
+			sql.Named("m_key", key.Key),
+			sql.Named("m_type", key.Type),
+			sql.Named("m_description", key.Description),
 			sql.Named("m_template_id", lastId),
 		)
+		if err != nil {
+			log.Printf("WARN: insertTemplate: " + err.Error())
+			return
+		}
+
+		if len(key.Picklist) > 0 {
+			keyLastId, err := keyRes.LastInsertId()
+			if err != nil {
+				log.Printf("WARN: insertTemplate: " + err.Error())
+				return
+			}
+			keySqlString := `
+				INSERT INTO t_template_keys_picklist (
+					m_template_keys_id,
+					m_value
+				) VALUES (
+					:m_template_keys_id,
+					:m_value
+				)
+			`
+			for _, value := range key.Picklist {
+				_, err := db.Exec(
+					keySqlString,
+					sql.Named("m_template_keys_id", keyLastId),
+					sql.Named("m_value", value),
+				)
+				if err != nil {
+					log.Printf("WARN: insertTemplate: " + err.Error())
+					return
+				}
+			}
+		}
 	}
 	if err != nil {
 		log.Printf("WARN: insertTemplate: " + err.Error())
@@ -94,7 +182,7 @@ func updateTemplate(template SlurmTemplate) {
 		UPDATE t_template
 		SET
 			m_name = :m_name,
-			m_body = :m_body
+			m_description = :m_description
 		WHERE id = :id
 	`
 	db := db.GetDbConnection()
@@ -102,7 +190,7 @@ func updateTemplate(template SlurmTemplate) {
 	_, err := db.Exec(
 		sqlString,
 		sql.Named("m_name", template.Name),
-		sql.Named("m_body", template.Body),
+		sql.Named("m_description", template.Description),
 		sql.Named("id", template.Id),
 	)
 	if err != nil {
@@ -155,7 +243,14 @@ func queryAllTemplates() (templates []SlurmTemplate) {
 		  t_template.id,
 			t_template.m_body,
 			t_template.m_name,
+			t_template.m_description,
+			t_template.m_version,
+			t_template.m_is_published,
+			t_template.m_original_id,
+			t_template_keys.id,
 			t_template_keys.m_key,
+			t_template_keys.m_type,
+			t_template_keys.m_description,
 			t_template_keys.m_template_id
 		FROM t_template
 		JOIN t_template_keys ON t_template_keys.m_template_id = t_template.id
@@ -173,10 +268,17 @@ func queryAllTemplates() (templates []SlurmTemplate) {
 func QueryTemplateById(id int) (template SlurmTemplate) {
 	sqlString := `
 		SELECT 
-		  t_template.id,
+			t_template.id,
 			t_template.m_body,
 			t_template.m_name,
+			t_template.m_description,
+			t_template.m_version,
+			t_template.m_is_published,
+			t_template.m_original_id,
+			t_template_keys.id,
 			t_template_keys.m_key,
+			t_template_keys.m_type,
+			t_template_keys.m_description,
 			t_template_keys.m_template_id
 		FROM t_template
 		JOIN t_template_keys ON t_template_keys.m_template_id = t_template.id
@@ -194,9 +296,9 @@ func QueryTemplateById(id int) (template SlurmTemplate) {
 	return
 }
 
-func queryTemplateKeys(templateId int) (keys []string) {
+/*func queryTemplateKeys(templateId int) (keys []string) {
 	sqlString := `
-		SELECT 
+		SELECT
 		  m_key
 		FROM t_template
 		WHERE m_template_id = :m_template_id;
@@ -224,4 +326,4 @@ func queryTemplateKeys(templateId int) (keys []string) {
 		log.Printf("WARN: queryTemplateKeys: " + err.Error())
 	}
 	return
-}
+}*/
