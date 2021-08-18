@@ -74,8 +74,8 @@ func templateJobSubmit(cnx *gin.Context) {
 	json.Unmarshal([]byte(jsonData), &req)
 
 	selectedTemplate := templateRepo.QueryTemplateById(req.TemplateId)
-
-	t := template.Must(template.New("t2").Parse(selectedTemplate.Body))
+	combined := selectedTemplate.Header + "\n" + selectedTemplate.Body
+	t := template.Must(template.New("t2").Parse(combined))
 	var result string
 	buf := bytes.NewBufferString(result)
 	templateKeyValues := map[string]string{}

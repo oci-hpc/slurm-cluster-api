@@ -3,6 +3,7 @@ package template
 type SlurmTemplate struct {
 	Id          int
 	Name        string
+	Header      string
 	Body        string
 	Keys        []TemplateKey
 	Description string

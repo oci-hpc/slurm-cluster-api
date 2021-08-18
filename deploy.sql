@@ -65,12 +65,14 @@ CREATE TABLE IF NOT EXISTS t_job_template_submission (
 
 CREATE TABLE IF NOT EXISTS t_template (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  m_header TEXT,
   m_body TEXT,
-  m_name TEXT UNIQUE,
+  m_name TEXT,
   m_description TEXT,
   m_version INTEGER,
   m_is_published BOOLEAN,
-  m_original_id INTEGER REFERENCES t_template (id) ON DELETE CASCADE
+  m_original_id INTEGER REFERENCES t_template (id) ON DELETE CASCADE,
+  UNIQUE(m_name, m_version)
 );
 
 CREATE TABLE IF NOT EXISTS t_template_keys (
