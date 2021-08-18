@@ -26,6 +26,7 @@ func convertRowsToJobs(rows *sql.Rows, jobs *[]Job) {
 	for rows.Next() {
 		var job Job
 		var nullTemplateSubmissionId sql.NullInt32
+		var nullTemplateId sql.NullInt32
 		err := rows.Scan(
 			&job.Id,
 			&job.JobId,
@@ -52,18 +53,20 @@ func convertRowsToJobs(rows *sql.Rows, jobs *[]Job) {
 			&job.JobStateReason,
 			&job.JobStateDescription,
 			&nullTemplateSubmissionId,
+			&nullTemplateId,
 		)
 		if err != nil {
 			log.Printf("WARN: convertRowsToJobs: " + err.Error())
 		}
 		if nullTemplateSubmissionId.Valid {
 			job.JobTemplateSubmission = int(nullTemplateSubmissionId.Int32)
+			job.JobTemplateId = int(nullTemplateId.Int32)
 		}
 		*jobs = append(*jobs, job)
 	}
 }
 
-func insertJobTemplateSubmission(submission JobTemplateSubmission) {
+func insertJobTemplateSubmission(submission JobTemplateSubmission) (id int64) {
 	sqlString := `
 		INSERT INTO t_job_template_submission (
 			m_job_id,
@@ -77,7 +80,7 @@ func insertJobTemplateSubmission(submission JobTemplateSubmission) {
 	`
 	db := db.GetDbConnection()
 	defer db.Close()
-	_, err := db.Exec(
+	res, err := db.Exec(
 		sqlString,
 		sql.Named("m_job_id", submission.JobId),
 		sql.Named("m_template_id", submission.TemplateId),
@@ -86,7 +89,8 @@ func insertJobTemplateSubmission(submission JobTemplateSubmission) {
 	if err != nil {
 		log.Printf("WARN: insertJobTemplateSubmission: " + err.Error())
 	}
-
+	id, _ = res.LastInsertId()
+	return
 }
 
 func queryJobTemplateSubmission(id int) (jobTemplateSubmission JobTemplateSubmission) {
@@ -295,9 +299,10 @@ func queryAllJobs() (jobs []Job) {
 			t_job.m_job_state,
 			t_job.m_job_state_reason,
 			t_job.m_job_state_description,
-			t_job_template_submission.id
+			t_job_template_submission.id,
+			t_job_template_submission.m_template_id
 		FROM t_job
-		LEFT JOIN t_job_template_submission ON t_job_template_submission.m_job_id = t_job.id
+		LEFT JOIN t_job_template_submission ON t_job_template_submission.m_job_id = t_job.m_job_id
 		ORDER BY t_job.id DESC;
 	`
 	db := db.GetDbConnection()
@@ -344,9 +349,10 @@ func queryJobsByUser(clusterUserId int) (jobs []Job) {
 			t_job.m_job_state,
 			t_job.m_job_state_reason,
 			t_job.m_job_state_description,
-			t_job_template_submission.id
+			t_job_template_submission.id,
+			t_job_template_submission.m_template_id
 		FROM t_job
-		LEFT JOIN t_job_template_submission ON t_job_template_submission.m_job_id = t_job.id
+		LEFT JOIN t_job_template_submission ON t_job_template_submission.m_job_id = t_job.m_job_id
 		WHERE m_user_id = :m_user_id;
 	`
 	db := db.GetDbConnection()
@@ -390,9 +396,10 @@ func queryJobsBySlurmJobId(slurmJobId int) (job Job) {
 			t_job.m_job_state,
 			t_job.m_job_state_reason,
 			t_job.m_job_state_description,
-			t_job_template_submission.id
+			t_job_template_submission.id,
+			t_job_template_submission.m_template_id
 		FROM t_job
-		LEFT JOIN t_job_template_submission ON t_job_template_submission.m_job_id = t_job.id
+		LEFT JOIN t_job_template_submission ON t_job_template_submission.m_job_id = t_job.m_job_id
 		WHERE t_job.m_job_id = :m_job_id;
 	`
 	db := db.GetDbConnection()

@@ -21,7 +21,9 @@ import "C"
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io/ioutil"
+	"log"
 	"os"
 	"path"
 	"strconv"
@@ -55,6 +57,7 @@ func getJobsTemplateSubmit(cnx *gin.Context) {
 		}
 		jobs := queryJobTemplateSubmission(intVal)
 		cnx.JSON(200, jobs)
+		return
 	}
 	cnx.JSON(400, "id field is required")
 }
@@ -75,16 +78,28 @@ func templateJobSubmit(cnx *gin.Context) {
 	t := template.Must(template.New("t2").Parse(selectedTemplate.Body))
 	var result string
 	buf := bytes.NewBufferString(result)
+	templateKeyValues := map[string]string{}
 	for key, value := range req.KeyValues {
-		req.KeyValues[strings.ToLower(key)] = value
+		templateKeyValues[strings.ToLower(key)] = value
 	}
-	t.Execute(buf, req.KeyValues)
+	t.Execute(buf, templateKeyValues)
 	var jobReq JobDescriptorRequest
 	jobReq.Script = buf.String()
 	print(jobReq.Script)
 	jobReq.Account = "default"
 	jobReq.JobName = "test-job"
-	slurmSubmitJob(cnx, jobReq)
+	jobId, err := slurmSubmitJob(jobReq)
+	if err != nil {
+		cnx.JSON(500, "Internal error submitting job")
+	} else {
+		var templateJobSubmission JobTemplateSubmission
+		templateJobSubmission.TemplateId = selectedTemplate.Id
+		templateJobSubmission.JobId = jobId
+		kv, _ := json.Marshal(req.KeyValues)
+		templateJobSubmission.TemplateKeyValues = string(kv)
+		insertJobTemplateSubmission(templateJobSubmission)
+		cnx.JSON(200, "Job successfully submitted")
+	}
 	//Pass in a map[string]string with keys in lowercase
 	//t.Execute(os.Stdout, passIn)
 }
@@ -100,10 +115,15 @@ func submitJob(cnx *gin.Context) {
 	var req JobDescriptorRequest
 	json.Unmarshal([]byte(jsonData), &req)
 
-	slurmSubmitJob(cnx, req)
+	_, err = slurmSubmitJob(req)
+	if err != nil {
+		cnx.JSON(500, "Internal error submitting job")
+	} else {
+		cnx.JSON(200, "Job successfully submitted")
+	}
 }
 
-func slurmSubmitJob(cnx *gin.Context, req JobDescriptorRequest) {
+func slurmSubmitJob(req JobDescriptorRequest) (jobId int, err error) {
 	if req.Username == "" {
 		req.Username = "DefaultUser"
 		req.ClusterUserId = 1
@@ -117,17 +137,17 @@ func slurmSubmitJob(cnx *gin.Context, req JobDescriptorRequest) {
 	outputDirPath := os.Getenv("OUTPUT_DIR")
 	outputUserPath := path.Join(outputDirPath, req.Username)
 
-	if _, err := os.Stat(outputUserPath); os.IsNotExist(err) {
+	if _, err = os.Stat(outputUserPath); os.IsNotExist(err) {
 		err = os.Mkdir(outputUserPath, 0755)
 		if err != nil {
-			print("WARN: submitJob: " + err.Error())
-			cnx.JSON(500, "Error creating path for user")
+			log.Println("WARN: slurmSubmitJob: " + err.Error())
 			return
 		}
 	}
 	outputWorkDir, err := createOutputDirectory(req.Username)
 	if err != nil {
-		cnx.JSON(500, "Error creating results save path")
+		log.Println("WARN: slurmSubmitJob: " + err.Error())
+		return
 	}
 
 	//job_desc_msg := convertJobDescriptor(jobDescriptor)
@@ -152,11 +172,14 @@ func slurmSubmitJob(cnx *gin.Context, req JobDescriptorRequest) {
 		res := convertSubmitResponse(slres)
 		job := createJobFromRequest(req, res.JobId)
 		insertJob(job)
-		cnx.JSON(200, res)
+		jobId = res.JobId
+		return
 	} else {
 		errno := C.slurm_get_errno()
 		errno_str := "SLURM-" + strconv.Itoa(int(errno)) + " " + C.GoString(C.slurm_strerror(errno))
-		cnx.JSON(500, errno_str)
+		log.Println("WARN: slurmSubmitJob: " + errno_str)
+		err = errors.New(errno_str)
+		return
 	}
 }
 

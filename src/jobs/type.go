@@ -18,7 +18,7 @@ type JobTemplateSubmission struct {
 	Id                int
 	JobId             int
 	TemplateId        int
-	TemplateKeyValues map[string]string
+	TemplateKeyValues string
 }
 
 type SubmitResponse struct {
@@ -54,6 +54,7 @@ type Job struct {
 	JobStateReason        int
 	JobStateDescription   string
 	JobTemplateSubmission int
+	JobTemplateId         int
 }
 
 type JobDescriptorRequest struct {
