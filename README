@@ -1,0 +1,2 @@
+Set PKG_CONFIG_PATH env variable to location of the slurm.pc file
+When installing go, install the latest version of golang, not default for yum

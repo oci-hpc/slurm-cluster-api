@@ -25,7 +25,9 @@ func getJobInfos() (jobs []JobInfo) {
 	if ret == -1 {
 		log.Printf("WARN: getJobs: error getting jobs from SLURM API")
 	}
-	count := int(slres.record_count)
-	jobs = convertJobInfoArray(slres.job_array, count)
+	if slres != nil {
+		count := int(slres.record_count)
+		jobs = convertJobInfoArray(slres.job_array, count)
+	}
 	return
 }
