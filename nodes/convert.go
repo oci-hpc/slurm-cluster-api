@@ -25,7 +25,7 @@ func convertNodeInfoArray(node_array *C.node_info_t, count int) []NodeInfo {
 	// Checking arch seems to work, might not be the best field to check
 	for i := count - 1; i >= 0; i-- {
 		if node_info_slice[i].arch == nil {
-			break
+			continue
 		}
 		nodeInfo := convertNodeInfo(node_info_slice[i])
 		nodes = append(nodes, nodeInfo)

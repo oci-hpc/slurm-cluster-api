@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	db "github.com/oci-hpc/slurm-cluster-api/src/database"
+	db "github.com/oci-hpc/database"
 )
 
 func upsertNodeStatus(node NodeInfo) {

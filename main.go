@@ -8,12 +8,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 
-	db "github.com/oci-hpc/slurm-cluster-api/src/database"
-	download "github.com/oci-hpc/slurm-cluster-api/src/download"
-	jobs "github.com/oci-hpc/slurm-cluster-api/src/jobs"
-	nodes "github.com/oci-hpc/slurm-cluster-api/src/nodes"
-	results "github.com/oci-hpc/slurm-cluster-api/src/results"
-	template "github.com/oci-hpc/slurm-cluster-api/src/template"
+	db "github.com/oci-hpc/database"
+	download "github.com/oci-hpc/download"
+	jobs "github.com/oci-hpc/jobs"
+	nodes "github.com/oci-hpc/nodes"
+	results "github.com/oci-hpc/results"
+	template "github.com/oci-hpc/template"
 )
 
 func main() {

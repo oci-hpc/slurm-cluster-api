@@ -5,7 +5,7 @@ import (
 	"log"
 	"strings"
 
-	db "github.com/oci-hpc/slurm-cluster-api/src/database"
+	db "github.com/oci-hpc/database"
 )
 
 func convertRowsToTemplates(rows *sql.Rows, templates *[]SlurmTemplate) {

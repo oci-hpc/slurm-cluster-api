@@ -1,4 +1,4 @@
-module github.com/oci-hpc/slurm-cluster-api
+module github.com/oci-hpc
 
 go 1.18
 

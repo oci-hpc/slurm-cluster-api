@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"log"
 
-	db "github.com/oci-hpc/slurm-cluster-api/src/database"
+	db "github.com/oci-hpc/database"
 )
 
 func upsertJobStatus(jobInfo JobInfo) {

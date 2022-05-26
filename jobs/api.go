@@ -33,7 +33,7 @@ import (
 	"unsafe"
 
 	"github.com/gin-gonic/gin"
-	templateRepo "github.com/oci-hpc/slurm-cluster-api/src/template"
+	templateRepo "github.com/oci-hpc/template"
 )
 
 func InitializeJobsEndpoint(r *gin.Engine) {
