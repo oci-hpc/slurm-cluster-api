@@ -14,6 +14,7 @@ import (
 	nodes "github.com/oci-hpc/nodes"
 	results "github.com/oci-hpc/results"
 	template "github.com/oci-hpc/template"
+	users "github.com/oci-hpc/users"
 )
 
 func main() {
@@ -45,6 +46,7 @@ func initialize(r *gin.Engine) {
 	results.InitializeResultsEndpoint(r)
 	template.InitializeTemplateEndpoint(r)
 	download.InitializeDownloadEndpoint(r)
+	users.InitializeUsersEndpoint(r)
 	db.InitDatabase()
 	go nodes.RunNodeMonitor()
 	go jobs.RunJobMonitor()
