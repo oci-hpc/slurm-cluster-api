@@ -9,4 +9,6 @@ type LoginInfo struct {
 // UserInfo contains user info augmented by LDAP
 type UserInfo struct {
 	Username string
+	Email    string
+	//TODO: pull in info from LDAP
 }

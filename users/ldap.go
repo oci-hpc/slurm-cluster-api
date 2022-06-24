@@ -28,8 +28,15 @@ func LDAPConn() {
 	}
 }
 
-// Validate checks whether a user/password combination is valid
-func Validate(login LoginInfo) bool {
-	// TODO: return true for now; plug in ldap later
-	return true
+// validateLDAPLogin checks whether a user/password combination is valid
+func validateLDAPLogin(login LoginInfo) (UserInfo, bool) {
+	// TODO: always return true for now; should validate via LDAP
+	// TODO: pull username and info from LDAP
+	userInfo := UserInfo{Username: login.Username, Email: "test@test.com"}
+	return userInfo, true
 }
+
+// TODO:
+// func createUser
+// func updateUser
+// func getUserInfo

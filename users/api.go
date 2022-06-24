@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt"
@@ -33,7 +34,13 @@ func login(cnx *gin.Context) {
 	}
 
 	// check vs ldap
-	if Validate(login) {
+	if userInfo, ok := validateLDAPLogin(login); ok {
+		jwtToken, err := GenerateJWTToken(userInfo)
+		if err != nil {
+			cnx.JSON(500, "could not generate a token")
+		}
+		expirationTime := time.Now().Add(5 * time.Minute)
+		cnx.SetCookie("token", jwtToken, int(expirationTime.Unix()), "/", "localhost", false, true)
 		cnx.JSON(200, "")
 		return
 	}
@@ -52,7 +59,7 @@ func validateToken(cnx *gin.Context) {
 		return
 	}
 
-	token, err := ValidateToken(jwtToken)
+	token, err := ValidateJWTToken(jwtToken)
 	if err != nil {
 		cnx.AbortWithStatusJSON(http.StatusBadRequest, UnsignedResponse{
 			Message: "bad jwt token",
@@ -72,6 +79,25 @@ func validateToken(cnx *gin.Context) {
 
 func refreshToken(cnx *gin.Context) {
 	cnx.JSON(200, "")
+}
+
+func TokenAuthMiddleware() gin.HandlerFunc {
+	return func(cnx *gin.Context) {
+		token, err := extractBearerToken(cnx.GetHeader("Authorization"))
+		if err != nil {
+			cnx.JSON(http.StatusUnauthorized, err.Error())
+			cnx.Abort()
+			return
+		}
+
+		_, err = ValidateJWTToken(token)
+		if err != nil {
+			cnx.JSON(http.StatusUnauthorized, err.Error())
+			cnx.Abort()
+			return
+		}
+		cnx.Next()
+	}
 }
 
 func extractBearerToken(header string) (string, error) {
