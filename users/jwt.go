@@ -60,5 +60,5 @@ func generateRefreshToken(userInfo UserInfo) (tokenString string, refreshTokenSt
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err = token.SignedString(getSecretKey())
-	return tokenString, err
+	return tokenString, refreshTokenString, err
 }
