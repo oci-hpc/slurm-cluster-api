@@ -48,3 +48,17 @@ func GenerateJWTToken(userInfo UserInfo) (tokenString string, err error) {
 	tokenString, err = token.SignedString(getSecretKey())
 	return tokenString, err
 }
+
+func generateRefreshToken(userInfo UserInfo) (tokenString string, refreshTokenString string, err error) {
+	expirationTime := time.Now().Add(1 * time.Hour)
+	claims := &JWTClaim{
+		Email:    userInfo.Email,
+		Username: userInfo.Username,
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: expirationTime.Unix(),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err = token.SignedString(getSecretKey())
+	return tokenString, err
+}
