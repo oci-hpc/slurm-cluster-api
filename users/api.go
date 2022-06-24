@@ -35,12 +35,14 @@ func login(cnx *gin.Context) {
 
 	// check vs ldap
 	if userInfo, ok := validateLDAPLogin(login); ok {
-		jwtToken, err := GenerateJWTToken(userInfo)
+		jwtToken, refreshToken, err := GenerateJWTToken(userInfo)
 		if err != nil {
 			cnx.JSON(500, "could not generate a token")
 		}
 		expirationTime := time.Now().Add(5 * time.Minute)
+		refreshExpirationTime := time.Now().Add(7 * 24 * time.Hour)
 		cnx.SetCookie("token", jwtToken, int(expirationTime.Unix()), "/", "localhost", false, true)
+		cnx.SetCookie("refreshToken", refreshToken, int(refreshExpirationTime.Unix()), "/", "localhost", false, true)
 		cnx.JSON(200, "")
 		return
 	}

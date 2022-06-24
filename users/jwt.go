@@ -23,6 +23,15 @@ func getSecretKey() []byte {
 	return []byte(secret)
 }
 
+func getRefreshSecretKey() []byte {
+	secret := os.Getenv("JWT_REFRESH_SECRET")
+	if secret == "" {
+		// default secret; TODO: remove and cleanup env vars
+		secret = "xIKYselVMMc5XS5ATExrD30OuxKTt8F4eMZba62TGVk="
+	}
+	return []byte(secret)
+}
+
 func ValidateJWTToken(tokenString string) (*jwt.Token, error) {
 	jwtToken, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		// validate the alg is what you expect:
@@ -35,22 +44,49 @@ func ValidateJWTToken(tokenString string) (*jwt.Token, error) {
 	return jwtToken, err
 }
 
-func GenerateJWTToken(userInfo UserInfo) (tokenString string, err error) {
-	expirationTime := time.Now().Add(1 * time.Hour)
-	claims := &JWTClaim{
-		Email:    userInfo.Email,
-		Username: userInfo.Username,
-		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: expirationTime.Unix(),
-		},
+func GenerateJWTToken(userInfo UserInfo) (tokenString string, refreshTokenString string, err error) {
+	tokenString, err = generateAccessToken(userInfo)
+	if err != nil {
+		return "", "", err
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err = token.SignedString(getSecretKey())
-	return tokenString, err
+	refreshTokenString, err = generateRefreshToken(userInfo)
+	if err != nil {
+		return "", "", err
+	}
+
+	return tokenString, refreshTokenString, err
 }
 
-func generateRefreshToken(userInfo UserInfo) (tokenString string, refreshTokenString string, err error) {
-	expirationTime := time.Now().Add(1 * time.Hour)
+func RefreshJWTToken(refreshToken string, userInfo UserInfo) (tokenString string, refreshTokenString string, err error) {
+
+	//validate refresh token
+	_, err = jwt.Parse(refreshToken, func(token *jwt.Token) (interface{}, error) {
+		// validate the alg is what you expect:
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return getRefreshSecretKey(), nil
+	})
+
+	if err != nil {
+		return "", "", err
+	}
+
+	// if refresh token valid, generate new tokens
+	tokenString, err = generateAccessToken(userInfo)
+	if err != nil {
+		return "", "", err
+	}
+	refreshTokenString, err = generateRefreshToken(userInfo)
+	if err != nil {
+		return "", "", err
+	}
+
+	return tokenString, refreshTokenString, err
+}
+
+func generateAccessToken(userInfo UserInfo) (refreshTokenString string, err error) {
+	expirationTime := time.Now().Add(5 * time.Minute)
 	claims := &JWTClaim{
 		Email:    userInfo.Email,
 		Username: userInfo.Username,
@@ -59,6 +95,20 @@ func generateRefreshToken(userInfo UserInfo) (tokenString string, refreshTokenSt
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err = token.SignedString(getSecretKey())
-	return tokenString, refreshTokenString, err
+	refreshTokenString, err = token.SignedString(getSecretKey())
+	return refreshTokenString, err
+}
+
+func generateRefreshToken(userInfo UserInfo) (refreshTokenString string, err error) {
+	expirationTime := time.Now().Add(7 * 24 * time.Hour)
+	claims := &JWTClaim{
+		Email:    userInfo.Email,
+		Username: userInfo.Username,
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: expirationTime.Unix(),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	refreshTokenString, err = token.SignedString(getRefreshSecretKey())
+	return refreshTokenString, err
 }

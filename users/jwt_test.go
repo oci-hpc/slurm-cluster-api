@@ -10,35 +10,42 @@ func TestValidateJWTToken(t *testing.T) {
 		Username: "TestUsername",
 		Email:    "test@test.com",
 	}
-	validTokenString, _ := GenerateJWTToken(userInfo)
+	validTokenString, validRefreshTokenString, _ := GenerateJWTToken(userInfo)
 	type args struct {
-		tokenString string
+		tokenString        string
+		refreshTokenString string
 	}
 	tests := []struct {
-		name      string
-		args      args
-		wantToken string
-		wantErr   bool
+		name             string
+		args             args
+		wantToken        string
+		wantRefreshToken string
+		wantErr          bool
 	}{
 		{
 			name: "Valid Token",
 			args: args{
-				tokenString: validTokenString,
+				tokenString:        validTokenString,
+				refreshTokenString: validRefreshTokenString,
 			},
-			wantToken: validTokenString,
-			wantErr:   false,
+			wantToken:        validTokenString,
+			wantRefreshToken: validRefreshTokenString,
+			wantErr:          false,
 		},
 		{
 			name: "Invalid Token",
 			args: args{
-				tokenString: "badtoken",
+				tokenString:        "badtoken",
+				refreshTokenString: "badtoken",
 			},
-			wantToken: "",
-			wantErr:   true,
+			wantToken:        "",
+			wantRefreshToken: "",
+			wantErr:          true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			//validate token
 			got, err := ValidateJWTToken(tt.args.tokenString)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateJWTToken() error = %v, wantErr %v", err, tt.wantErr)
@@ -46,6 +53,15 @@ func TestValidateJWTToken(t *testing.T) {
 			}
 			if !tt.wantErr && !reflect.DeepEqual(got.Raw, tt.wantToken) {
 				t.Errorf("ValidateJWTToken() = %v, want %v", got, tt.wantToken)
+			}
+			//validate refresh token
+			got, err = ValidateJWTToken(tt.args.refreshTokenString)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateJWTToken() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && !reflect.DeepEqual(got.Raw, tt.wantRefreshToken) {
+				t.Errorf("ValidateJWTToken() = %v, want %v", got, tt.wantRefreshToken)
 			}
 		})
 	}
