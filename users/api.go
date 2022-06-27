@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt"
@@ -21,15 +20,16 @@ type SignedResponse struct {
 
 func InitializeUsersEndpoint(r *gin.Engine) {
 	r.POST("/login", login)
+	r.POST("/logout", TokenAuthMiddleware(), logout)
 	r.POST("/validateToken", validateToken)
-	r.POST("/refreshToken", refreshToken)
+	r.POST("/refreshToken", TokenAuthMiddleware(), refreshToken)
 }
 
 func login(cnx *gin.Context) {
 	// pluck user and password
 	var login LoginInfo
 	if err := cnx.ShouldBind(&login); err != nil {
-		cnx.JSON(400, errors.New("missing login information"))
+		cnx.JSON(http.StatusBadRequest, errors.New("missing login information"))
 		return
 	}
 
@@ -37,18 +37,34 @@ func login(cnx *gin.Context) {
 	if userInfo, ok := validateLDAPLogin(login); ok {
 		jwtToken, refreshToken, err := GenerateJWTToken(userInfo)
 		if err != nil {
-			cnx.JSON(500, "could not generate a token")
+			cnx.JSON(http.StatusInternalServerError, "could not generate a token")
 		}
-		expirationTime := time.Now().Add(5 * time.Minute)
-		refreshExpirationTime := time.Now().Add(7 * 24 * time.Hour)
-		cnx.SetCookie("token", jwtToken, int(expirationTime.Unix()), "/", "localhost", false, true)
-		cnx.SetCookie("refreshToken", refreshToken, int(refreshExpirationTime.Unix()), "/", "localhost", false, true)
-		cnx.JSON(200, "")
+		// expirationTime := time.Now().Add(5 * time.Minute)
+		// refreshExpirationTime := time.Now().Add(7 * 24 * time.Hour)
+		// cnx.SetCookie("token", jwtToken, int(expirationTime.Unix()), "/", "localhost", false, true)
+		// cnx.SetCookie("refreshToken", refreshToken, int(refreshExpirationTime.Unix()), "/", "localhost", false, true)
+
+		tokens := map[string]string{
+			"access_token":  jwtToken,
+			"refresh_token": refreshToken,
+		}
+		cnx.JSON(http.StatusCreated, tokens)
+
 		return
 	}
 
 	// case: Invalid credentials
-	cnx.JSON(401, "Invalid login credentials")
+	cnx.JSON(http.StatusUnauthorized, "Invalid login credentials")
+
+}
+
+func logout(cnx *gin.Context) {
+
+	// check token
+	// revoke token from store
+
+	// case: Invalid credentials
+	cnx.JSON(http.StatusUnauthorized, "Invalid login credentials")
 }
 
 func validateToken(cnx *gin.Context) {
@@ -80,7 +96,24 @@ func validateToken(cnx *gin.Context) {
 }
 
 func refreshToken(cnx *gin.Context) {
-	cnx.JSON(200, "")
+	mapToken := map[string]string{}
+	if err := cnx.ShouldBindJSON(&mapToken); err != nil {
+		cnx.JSON(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	oldRefreshToken := mapToken["refresh_token"]
+	userInfo := UserInfo{}
+	tokenString, refreshTokenString, err := RefreshJWTToken(oldRefreshToken, userInfo)
+	if err != nil {
+		cnx.JSON(http.StatusUnauthorized, "Invalid login credentials")
+		return
+	}
+
+	tokens := map[string]string{
+		"access_token":  tokenString,
+		"refresh_token": refreshTokenString,
+	}
+	cnx.JSON(http.StatusCreated, tokens)
 }
 
 func TokenAuthMiddleware() gin.HandlerFunc {
