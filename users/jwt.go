@@ -96,6 +96,7 @@ func generateAccessToken(userInfo UserInfo) (refreshTokenString string, err erro
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	refreshTokenString, err = token.SignedString(getSecretKey())
+	addRefreshToken(refreshTokenString, userInfo.Username)
 	return refreshTokenString, err
 }
 
@@ -110,5 +111,6 @@ func generateRefreshToken(userInfo UserInfo) (refreshTokenString string, err err
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	refreshTokenString, err = token.SignedString(getRefreshSecretKey())
+	addRefreshToken(refreshTokenString, userInfo.Username)
 	return refreshTokenString, err
 }

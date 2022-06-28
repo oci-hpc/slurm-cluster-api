@@ -39,10 +39,6 @@ func login(cnx *gin.Context) {
 		if err != nil {
 			cnx.JSON(http.StatusInternalServerError, "could not generate a token")
 		}
-		// expirationTime := time.Now().Add(5 * time.Minute)
-		// refreshExpirationTime := time.Now().Add(7 * 24 * time.Hour)
-		// cnx.SetCookie("token", jwtToken, int(expirationTime.Unix()), "/", "localhost", false, true)
-		// cnx.SetCookie("refreshToken", refreshToken, int(refreshExpirationTime.Unix()), "/", "localhost", false, true)
 
 		tokens := map[string]string{
 			"access_token":  jwtToken,
@@ -60,8 +56,15 @@ func login(cnx *gin.Context) {
 
 func logout(cnx *gin.Context) {
 
-	// check token
 	// revoke token from store
+	// jwtToken, err := extractBearerToken(cnx.GetHeader("Authorization"))
+	// if err != nil {
+	// 	cnx.AbortWithStatusJSON(http.StatusBadRequest, UnsignedResponse{
+	// 		Message: err.Error(),
+	// 	})
+	// 	return
+	// }
+	// revokeRefreshToken(refreshToken)
 
 	// case: Invalid credentials
 	cnx.JSON(http.StatusUnauthorized, "Invalid login credentials")
