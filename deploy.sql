@@ -5,6 +5,16 @@ CREATE TABLE IF NOT EXISTS t_user (
 
 INSERT INTO t_user (m_username) VALUES ('DefaultUser');
 
+CREATE TABLE IF NOT EXISTS t_user_token (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  m_user_id INTEGER,
+  m_username TEXT UNIQUE,
+  m_refresh_token TEXT UNIQUE,
+  m_created DATETIME,
+  m_active BOOLEAN
+  FOREIGN KEY (m_user_id) REFERENCES t_user (id) ON DELETE CASCADE,
+);
+
 CREATE TABLE IF NOT EXISTS t_node (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   m_cluster_name TEXT,
