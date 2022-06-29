@@ -10,8 +10,6 @@ import (
 func LDAPConn() (*ldap.Conn, error) {
 	// TODO: env var/read from file
 	// /etc/opt/oci-hpc/passwords/openldap/root.txt'
-	//uri := "ldaps://localhost:686"
-	//tlsBastionURL := "bastion.cluster"
 	password := "OglY2c8xgAfxAERVVQEM"
 	tlsBastionURL := "bastion.cluster"
 	tlsConfig := &tls.Config{ServerName: tlsBastionURL}

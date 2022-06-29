@@ -30,7 +30,8 @@ func main() {
 	// - Credentials share disabled
 	// - Preflight requests cached for 12 hours
 	config := cors.DefaultConfig()
-	config.AllowAllOrigins = true
+	config.AllowOrigins = []string{"http://localhost:8080"}
+	config.AllowCredentials = true
 	// config.AllowOrigins == []string{"http://google.com", "http://facebook.com"}
 
 	r.Use(cors.New(config))

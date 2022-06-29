@@ -3,11 +3,9 @@ package users
 import (
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt"
 )
 
 type UnsignedResponse struct {
@@ -21,7 +19,7 @@ type SignedResponse struct {
 
 func InitializeUsersEndpoint(r *gin.Engine) {
 	r.POST("/login", login)
-	r.POST("/validateToken", validateToken)
+	r.GET("/validateToken", validateTokenEndpoint)
 	r.POST("/refreshToken", refreshToken)
 }
 
@@ -41,7 +39,7 @@ func login(cnx *gin.Context) {
 		}
 		expirationTime := time.Now().Add(5 * time.Minute)
 		refreshExpirationTime := time.Now().Add(7 * 24 * time.Hour)
-		cnx.SetCookie("token", jwtToken, int(expirationTime.Unix()), "/", "localhost", false, true)
+		cnx.SetCookie("access_token", jwtToken, int(expirationTime.Unix()), "", "localhost", false, true)
 		cnx.SetCookie("refreshToken", refreshToken, int(refreshExpirationTime.Unix()), "/", "localhost", false, true)
 		cnx.JSON(200, "")
 		return
@@ -51,32 +49,8 @@ func login(cnx *gin.Context) {
 	cnx.JSON(401, "Invalid login credentials")
 }
 
-func validateToken(cnx *gin.Context) {
-
-	jwtToken, err := extractBearerToken(cnx.GetHeader("Authorization"))
-	if err != nil {
-		cnx.AbortWithStatusJSON(http.StatusBadRequest, UnsignedResponse{
-			Message: err.Error(),
-		})
-		return
-	}
-
-	token, err := ValidateJWTToken(jwtToken)
-	if err != nil {
-		cnx.AbortWithStatusJSON(http.StatusBadRequest, UnsignedResponse{
-			Message: "bad jwt token",
-		})
-		return
-	}
-
-	_, OK := token.Claims.(jwt.MapClaims)
-	if !OK {
-		cnx.AbortWithStatusJSON(http.StatusInternalServerError, UnsignedResponse{
-			Message: "unable to parse claims",
-		})
-		return
-	}
-	cnx.Next()
+func validateTokenEndpoint(cnx *gin.Context) {
+	validateToken(cnx)
 }
 
 func refreshToken(cnx *gin.Context) {
@@ -100,17 +74,4 @@ func TokenAuthMiddleware() gin.HandlerFunc {
 		}
 		cnx.Next()
 	}
-}
-
-func extractBearerToken(header string) (string, error) {
-	if header == "" {
-		return "", errors.New("bad header value given")
-	}
-
-	jwtToken := strings.Split(header, " ")
-	if len(jwtToken) != 2 {
-		return "", errors.New("incorrectly formatted authorization header")
-	}
-
-	return jwtToken[1], nil
 }
