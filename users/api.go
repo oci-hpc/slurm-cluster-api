@@ -3,7 +3,6 @@ package users
 import (
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -40,10 +39,10 @@ func login(cnx *gin.Context) {
 		if err != nil {
 			cnx.JSON(http.StatusInternalServerError, "could not generate a token")
 		}
-		expirationTime := time.Now().Add(5 * time.Minute)
-		refreshExpirationTime := time.Now().Add(7 * 24 * time.Hour)
-		cnx.SetCookie("access_token", jwtToken, int(expirationTime.Unix()), "", "localhost", false, true)
-		cnx.SetCookie("refreshToken", refreshToken, int(refreshExpirationTime.Unix()), "/", "localhost", false, true)
+		expirationTime := time.Now().Add(AccessTokenExpirationWindow)
+		refreshExpirationTime := time.Now().Add(RefreshTokenExpirationWindow)
+		cnx.SetCookie(AccessTokenKey, jwtToken, int(expirationTime.Unix()), "/", "localhost", false, true)
+		cnx.SetCookie(RefreshTokenKey, refreshToken, int(refreshExpirationTime.Unix()), "/", "localhost", false, true)
 		cnx.JSON(200, "")
 		return
 	}
@@ -70,7 +69,13 @@ func logout(cnx *gin.Context) {
 }
 
 func validateTokenEndpoint(cnx *gin.Context) {
-	validateToken(cnx)
+	err := validateToken(cnx)
+	if err != nil {
+		cnx.AbortWithStatusJSON(http.StatusUnauthorized, UnsignedResponse{
+			Message: "Unauthorized",
+		})
+	}
+	cnx.Next()
 }
 
 func refreshToken(cnx *gin.Context) {
@@ -79,7 +84,7 @@ func refreshToken(cnx *gin.Context) {
 		cnx.JSON(http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	oldRefreshToken := mapToken["refresh_token"]
+	oldRefreshToken := mapToken[RefreshTokenKey]
 	userInfo := UserInfo{}
 	tokenString, refreshTokenString, err := RefreshJWTToken(oldRefreshToken, userInfo)
 	if err != nil {
@@ -88,8 +93,8 @@ func refreshToken(cnx *gin.Context) {
 	}
 
 	tokens := map[string]string{
-		"access_token":  tokenString,
-		"refresh_token": refreshTokenString,
+		AccessTokenKey:  tokenString,
+		RefreshTokenKey: refreshTokenString,
 	}
 	cnx.JSON(http.StatusCreated, tokens)
 }

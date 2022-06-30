@@ -86,7 +86,7 @@ func RefreshJWTToken(refreshToken string, userInfo UserInfo) (tokenString string
 }
 
 func generateAccessToken(userInfo UserInfo) (refreshTokenString string, err error) {
-	expirationTime := time.Now().Add(5 * time.Minute)
+	expirationTime := time.Now().Add(AccessTokenExpirationWindow)
 	claims := &JWTClaim{
 		Email:    userInfo.Email,
 		Username: userInfo.Username,
@@ -96,12 +96,12 @@ func generateAccessToken(userInfo UserInfo) (refreshTokenString string, err erro
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	refreshTokenString, err = token.SignedString(getSecretKey())
-	addRefreshToken(refreshTokenString, userInfo.Username)
+	//addRefreshToken(refreshTokenString, userInfo.Username)
 	return refreshTokenString, err
 }
 
 func generateRefreshToken(userInfo UserInfo) (refreshTokenString string, err error) {
-	expirationTime := time.Now().Add(7 * 24 * time.Hour)
+	expirationTime := time.Now().Add(RefreshTokenExpirationWindow)
 	claims := &JWTClaim{
 		Email:    userInfo.Email,
 		Username: userInfo.Username,
@@ -111,6 +111,10 @@ func generateRefreshToken(userInfo UserInfo) (refreshTokenString string, err err
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	refreshTokenString, err = token.SignedString(getRefreshSecretKey())
-	addRefreshToken(refreshTokenString, userInfo.Username)
+	if err != nil {
+		return "", err
+	}
+	//addRefreshToken(refreshTokenString, userInfo.Username)
+	err = storeRefreshTokenLDAP(userInfo.Username, refreshTokenString)
 	return refreshTokenString, err
 }

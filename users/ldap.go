@@ -2,7 +2,9 @@ package users
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"log"
 
 	ldap "github.com/go-ldap/ldap/v3"
 )
@@ -28,39 +30,67 @@ func LDAPConn() (*ldap.Conn, error) {
 
 // validateLDAPLogin checks whether a user/password combination is valid
 func validateLDAPLogin(login LoginInfo) (UserInfo, bool) {
-	// TODO: always return true for now; should validate via LDAP
-	// TODO: pull username and info from LDAP
 	userInfo := UserInfo{Username: login.Username}
-	l, err := LDAPConn()
-	if err != nil {
-		fmt.Println(err.Error())
-		return userInfo, false
-	}
-	defer l.Close()
+
 	// check ldap information with `sudo slapcat` command
 	// ou=People,DC=local - default location for users
 	baseDN := "ou=People,DC=local"
-	// Filters must start and finish with ()
-	filter := fmt.Sprintf("(CN=%s)", ldap.EscapeFilter(userInfo.Username))
 
 	// userPassword - exists on the object for a given CN (a username) and OU (Organizational unit)
-	searchReq := ldap.NewSearchRequest(baseDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false, filter, []string{"userPassword"}, nil)
-
-	result, err := l.Search(searchReq)
+	pw, err := queryLDAPUserAttribute(baseDN, userInfo.Username, "userPassword")
 	if err != nil {
-		fmt.Println(err.Error())
 		return userInfo, false
 	}
-	if len(result.Entries) == 0 || len(result.Entries[0].Attributes) == 0 || len(result.Entries[0].Attributes[0].Values) == 0 {
-		return userInfo, false
-	}
-	pw := result.Entries[0].Attributes[0].Values[0]
 
 	if pw == login.Password {
 		return userInfo, true
 	}
 
 	return userInfo, false
+}
+
+func storeRefreshTokenLDAP(username string, refreshToken string) error {
+	l, err := LDAPConn()
+	if err != nil {
+		fmt.Println("storeRefreshToken: " + err.Error())
+		return err
+	}
+	defer l.Close()
+	dn := fmt.Sprintf("CN=%s,ou=People,dc=local", username)
+	mod := ldap.NewModifyRequest(dn, nil)
+	mod.Replace(RefreshTokenLDAPKey, []string{refreshToken})
+	if err := l.Modify(mod); err != nil {
+		log.Println("storeRefreshToken: " + err.Error())
+		return err
+	}
+
+	return nil
+}
+
+func queryLDAPUserAttribute(dn string, username string, attribute string) (string, error) {
+	l, err := LDAPConn()
+	if err != nil {
+		log.Println("queryLDAPAttribute: " + err.Error())
+		return "", err
+	}
+	defer l.Close()
+	baseDN := dn
+	// Filters must start and finish with ()
+	filter := fmt.Sprintf("(CN=%s)", ldap.EscapeFilter(username))
+
+	searchReq := ldap.NewSearchRequest(baseDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false, filter, []string{attribute}, nil)
+
+	result, err := l.Search(searchReq)
+	if err != nil {
+		log.Println("queryLDAPAttribute: " + err.Error())
+		return "", err
+	}
+	if len(result.Entries) == 0 || len(result.Entries[0].Attributes) == 0 || len(result.Entries[0].Attributes[0].Values) == 0 {
+		err = errors.New("queryLDAPAttribute: Could not find attribute")
+		log.Println("queryLDAPAttribute: " + err.Error())
+		return "", err
+	}
+	return result.Entries[0].Attributes[0].Values[0], err
 }
 
 // TODO:
