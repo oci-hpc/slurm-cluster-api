@@ -18,6 +18,11 @@ import (
 )
 
 func main() {
+	users.AddRBACClaimToRole("TestRole", "cn=claim-test2-100,cn=cluster,dc=local")
+	//users.AddRBACClaim("test2", 100)
+	//users.AddAdminUser()
+	//users.AddRBACRole("TestRole")
+	//users.CheckRoleExists("TestRole")
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")

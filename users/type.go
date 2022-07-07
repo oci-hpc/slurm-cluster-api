@@ -28,4 +28,7 @@ const (
 	RefreshTokenLDAPKey          = "description"
 	AccessTokenExpirationWindow  = 1 * time.Minute
 	RefreshTokenExpirationWindow = 7 * 24 * time.Hour
+	// check ldap information with `sudo slapcat` command
+	// ou=People,DC=local - default location for users
+	BaseDN = "ou=People,DC=local"
 )

@@ -16,7 +16,7 @@ func LDAPConn() (*ldap.Conn, error) {
 	tlsBastionURL := "bastion.cluster"
 	tlsConfig := &tls.Config{ServerName: tlsBastionURL}
 	l, err := ldap.DialURL("ldaps://localhost:636", ldap.DialWithTLSConfig(tlsConfig))
-
+	l.Debug.Enable(true)
 	if err != nil {
 		return l, err
 	}
@@ -32,12 +32,8 @@ func LDAPConn() (*ldap.Conn, error) {
 func validateLDAPLogin(login LoginInfo) (UserInfo, bool) {
 	userInfo := UserInfo{Username: login.Username}
 
-	// check ldap information with `sudo slapcat` command
-	// ou=People,DC=local - default location for users
-	baseDN := "ou=People,DC=local"
-
 	// userPassword - exists on the object for a given CN (a username) and OU (Organizational unit)
-	pw, err := queryLDAPUserAttribute(baseDN, userInfo.Username, "userPassword")
+	pw, err := queryLDAPUserAttribute(BaseDN, userInfo.Username, "userPassword")
 	if err != nil {
 		return userInfo, false
 	}

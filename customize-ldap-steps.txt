@@ -1,0 +1,16 @@
+1. create a <schema-name>.schema file and a <schema-name>.conf file that includes the schema file
+    Follow reference: https://www.openldap.org/doc/admin23/schema.html
+2. create a directory for the generated files
+3. slaptest -f *.conf -F <target-directory>
+4. edit <target-directory>/cn=config/cn=schema/cn=<schema-name>.ldif
+    change:
+    dn: cn=<schema-name>,cn=schema,cn=config
+    cn: <schema-name>
+5. rename above file to <schema-name>.ldif
+6. apply changes
+    service slapd stop
+    slapadd -l <schema-name>.ldif -n 0 
+    chown ldap /etc/openldap/slapd.d/cn\=config/cn\=schema/cn\=\{<auto-assigned-number>\}<schema-name>.ldif
+    service slapd start
+7. delete the created directory. the slaptest command does NOT OVERWRITE existing files with changes
+8. If need to revert changes, delete the file from step 6

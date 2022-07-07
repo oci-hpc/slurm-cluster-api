@@ -21,6 +21,7 @@ func InitializeUsersEndpoint(r *gin.Engine) {
 	r.POST("/login", login)
 	r.POST("/logout", TokenAuthMiddleware(), logout)
 	r.GET("/validateToken", validateTokenEndpoint)
+	r.GET("/logout", logout)
 	r.POST("/refreshToken", TokenAuthMiddleware(), refreshToken)
 
 }
@@ -43,7 +44,7 @@ func login(cnx *gin.Context) {
 		refreshExpirationTime := time.Now().Add(RefreshTokenExpirationWindow)
 		cnx.SetCookie(AccessTokenKey, jwtToken, int(expirationTime.Unix()), "/", "localhost", false, true)
 		cnx.SetCookie(RefreshTokenKey, refreshToken, int(refreshExpirationTime.Unix()), "/", "localhost", false, true)
-		cnx.JSON(200, "")
+		cnx.JSON(200, userInfo)
 		return
 	}
 
@@ -53,19 +54,9 @@ func login(cnx *gin.Context) {
 }
 
 func logout(cnx *gin.Context) {
-
-	// revoke token from store
-	// jwtToken, err := extractBearerToken(cnx.GetHeader("Authorization"))
-	// if err != nil {
-	// 	cnx.AbortWithStatusJSON(http.StatusBadRequest, UnsignedResponse{
-	// 		Message: err.Error(),
-	// 	})
-	// 	return
-	// }
-	// revokeRefreshToken(refreshToken)
-
-	// case: Invalid credentials
-	cnx.JSON(http.StatusUnauthorized, "Invalid login credentials")
+	cnx.SetCookie(AccessTokenKey, "", 0, "/", "localhost", false, true)
+	cnx.SetCookie(RefreshTokenKey, "", 0, "/", "localhost", false, true)
+	cnx.Status(200)
 }
 
 func validateTokenEndpoint(cnx *gin.Context) {
