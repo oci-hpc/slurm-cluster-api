@@ -2,6 +2,7 @@ package users
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"time"
 
@@ -23,7 +24,8 @@ func InitializeUsersEndpoint(r *gin.Engine) {
 	r.GET("/validateToken", validateTokenEndpoint)
 	r.GET("/logout", logout)
 	r.POST("/refreshToken", TokenAuthMiddleware(), refreshToken)
-
+	r.GET("/claims", getClaims)
+	r.POST("/claims", addClaim)
 }
 
 func login(cnx *gin.Context) {
@@ -106,5 +108,64 @@ func TokenAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 		cnx.Next()
+	}
+}
+
+func getClaims(cnx *gin.Context) {
+	query := cnx.Request.URL.Query()
+	var res []RBACClaim
+	if val, ok := query["role"]; ok {
+		entries, err := QueryRBACRoleClaim(val[0])
+		if err != nil {
+			cnx.JSON(http.StatusInternalServerError, "Server internal error")
+		}
+		res = EntriesToRBACClaims(entries)
+		cnx.JSON(http.StatusOK, res)
+	} else {
+		entries, err := QueryAllRBACClaims()
+		if err != nil {
+			cnx.JSON(http.StatusInternalServerError, "Server internal error")
+		}
+		res = EntriesToRBACClaims(entries)
+		cnx.JSON(http.StatusOK, res)
+	}
+}
+
+func addClaim(cnx *gin.Context) {
+	var claim RBACClaim
+	if err := cnx.ShouldBindJSON(&claim); err != nil {
+		cnx.JSON(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	if claim.Name == "" {
+		cnx.JSON(http.StatusBadRequest, "Name is invalid")
+		return
+	}
+	query := cnx.Request.URL.Query()
+	if val, ok := query["role"]; ok {
+		e, err := QueryRBACClaim(claim.Name, claim.Value)
+		if err != nil {
+			log.Printf("addClaim - %s", err.Error())
+			cnx.JSON(http.StatusBadRequest, "Invalid claim")
+			return
+		}
+		if len(e) == 0 {
+			log.Printf("addClaim - no claims found in query that match LDAP claims")
+			cnx.JSON(http.StatusBadRequest, "Invalid claim")
+			return
+		}
+		err = AddRBACClaimToRole(val[0], e[0].DN)
+		if err != nil {
+			log.Printf("addClaim - %s", err.Error())
+			cnx.JSON(http.StatusBadRequest, "Unable to add claim to role")
+			return
+		}
+	} else {
+		err := AddRBACClaim(claim.Name, claim.Value)
+		if err != nil {
+			cnx.JSON(http.StatusInternalServerError, err.Error())
+			return
+		}
+		cnx.JSON(http.StatusOK, "")
 	}
 }

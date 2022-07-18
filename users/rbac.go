@@ -9,7 +9,7 @@ import (
 )
 
 func CheckRoleExists(role string) bool {
-	res, err := queryRBACRole(role)
+	res, err := QueryRBACRole(role)
 	if err != nil {
 		return false
 	}
@@ -19,29 +19,106 @@ func CheckRoleExists(role string) bool {
 	return true
 }
 
-func queryRBACRole(role string) ([]*ldap.EntryAttribute, error) {
+func QueryRBACRole(role string) ([]*ldap.Entry, error) {
 	l, err := LDAPConn()
 	if err != nil {
-		log.Println("queryRBACRole: " + err.Error())
+		log.Println("QueryRBACRole: " + err.Error())
 		return nil, err
 	}
 	defer l.Close()
 	// Filters must start and finish with ()
 	filter := fmt.Sprintf("(cn=%s)", ldap.EscapeFilter(role))
 
-	searchReq := ldap.NewSearchRequest(BaseDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false, filter, nil, nil)
+	searchReq := ldap.NewSearchRequest(PeopleDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false, filter, nil, nil)
 
 	result, err := l.Search(searchReq)
 	if err != nil {
-		log.Println("queryRBACRole: " + err.Error())
+		log.Println("QueryRBACRole: " + err.Error())
 		return nil, err
 	}
 	if len(result.Entries) == 0 {
 		err = errors.New("Could not find role")
-		log.Println("queryRBACRole: " + err.Error())
+		log.Println("QueryRBACRole: " + err.Error())
 		return nil, err
 	}
-	return result.Entries[0].Attributes, err
+	return result.Entries, err
+}
+
+func QueryAllRBACClaims() ([]*ldap.Entry, error) {
+	l, err := LDAPConn()
+	if err != nil {
+		log.Println("QueryRBACClaim: " + err.Error())
+		return nil, err
+	}
+	defer l.Close()
+	// Filters must start and finish with ()
+	filter := fmt.Sprintf("(objectClass=x-cluster-claim)")
+
+	searchReq := ldap.NewSearchRequest(ClaimDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false, filter, nil, nil)
+
+	result, err := l.Search(searchReq)
+	if err != nil {
+		log.Println("QueryRBACClaim: " + err.Error())
+		return nil, err
+	}
+	if len(result.Entries) == 0 {
+		err = errors.New("Could not find role")
+		log.Println("QueryRBACClaim: " + err.Error())
+		return nil, err
+	}
+	return result.Entries, err
+}
+
+func QueryRBACClaim(name string, value int) ([]*ldap.Entry, error) {
+	l, err := LDAPConn()
+	if err != nil {
+		log.Println("QueryRBACClaim: " + err.Error())
+		return nil, err
+	}
+	defer l.Close()
+	// Filters must start and finish with ()
+	filter := fmt.Sprintf("(cn=claim-%s-%d)", name, value)
+
+	searchReq := ldap.NewSearchRequest(ClaimDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false, filter, nil, nil)
+
+	result, err := l.Search(searchReq)
+	if err != nil {
+		log.Println("QueryRBACClaim: " + err.Error())
+		return nil, err
+	}
+	if len(result.Entries) == 0 {
+		err = errors.New("Could not find role")
+		log.Println("QueryRBACClaim: " + err.Error())
+		return nil, err
+	}
+	return result.Entries, err
+}
+
+func QueryRBACRoleClaim(role string) ([]*ldap.Entry, error) {
+	l, err := LDAPConn()
+	if err != nil {
+		log.Println("QueryRBACRoleClaim: " + err.Error())
+		return nil, err
+	}
+	defer l.Close()
+	// Filters must start and finish with ()
+	filter := "(cn=cluster-claims)"
+	//filter := fmt.Sprintf("(cn=%s)", ldap.EscapeFilter(role))
+	dn := fmt.Sprintf("cn=%s,%s", role, PeopleDN)
+	searchReq := ldap.NewSearchRequest(dn, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false, filter, nil, nil)
+
+	result, err := l.Search(searchReq)
+
+	if err != nil {
+		log.Println("QueryRBACRoleClaim: " + err.Error())
+		return nil, err
+	}
+	if len(result.Entries) == 0 {
+		err = errors.New("Could not find role")
+		log.Println("QueryRBACRoleClaim: " + err.Error())
+		return nil, err
+	}
+	return result.Entries, err
 }
 
 func AddAdminUser() error {
@@ -53,7 +130,7 @@ func AddAdminUser() error {
 	}
 	defer l.Close()
 	adminAccountName := "admin"
-	dn := fmt.Sprintf("cn=%s,ou=People,dc=local", adminAccountName)
+	dn := fmt.Sprintf("cn=%s,%s", adminAccountName, PeopleDN)
 	addReq := ldap.NewAddRequest(dn, nil)
 	addAttributeToAddRequest(addReq, "objectClass", []string{"inetOrgPerson", "top", "shadowAccount"})
 	addAttributeToAddRequest(addReq, "userPassword", []string{adminAccountName})
@@ -74,7 +151,7 @@ func AddRBACRole(role string) error {
 		return err
 	}
 	defer l.Close()
-	dn := fmt.Sprintf("cn=%s,ou=People,dc=local", role)
+	dn := fmt.Sprintf("cn=%s,%s", role, PeopleDN)
 	addReq := ldap.NewAddRequest(dn, nil)
 	addAttributeToAddRequest(addReq, "objectClass", []string{"groupOfUniqueNames", "top"})
 	addAttributeToAddRequest(addReq, "cn", []string{role})
@@ -86,14 +163,14 @@ func AddRBACRole(role string) error {
 	return nil
 }
 
-func AddRBACClaim(name string, value int32) error {
+func AddRBACClaim(name string, value int) error {
 	l, err := LDAPConn()
 	if err != nil {
 		fmt.Println("AddRBACClaim: " + err.Error())
 		return err
 	}
 	defer l.Close()
-	dn := fmt.Sprintf("cn=claim-%s-%d,cn=cluster,dc=local", name, value)
+	dn := fmt.Sprintf("cn=claim-%s-%d,%s", name, value, ClaimDN)
 	addReq := ldap.NewAddRequest(dn, nil)
 	addAttributeToAddRequest(addReq, "objectClass", []string{"organizationalRole", "x-cluster-claim", "top"})
 	addAttributeToAddRequest(addReq, "x-cluster-claim-name", []string{name})
@@ -116,7 +193,7 @@ func AddRBACClaimToRole(role string, claimDN string) error {
 		return err
 	}
 	defer l.Close()
-	dn := fmt.Sprintf("cn=cluster-claims,cn=%s,%s", role, BaseDN)
+	dn := fmt.Sprintf("cn=cluster-claims,cn=%s,%s", role, PeopleDN)
 	addReq := ldap.NewAddRequest(dn, nil)
 	addAttributeToAddRequest(addReq, "objectClass", []string{"groupOfUniqueNames", "top"})
 	addAttributeToAddRequest(addReq, "uniqueMember", []string{claimDN})

@@ -20,6 +20,16 @@ type RefreshToken struct {
 	Expiration         int64
 }
 
+type RBACClaim struct {
+	Name  string
+	Value int
+}
+
+type RBACRole struct {
+	Name   string
+	Claims []RBACClaim
+}
+
 const (
 	AccessTokenKey  = "access_token"
 	RefreshTokenKey = "refresh_token"
@@ -30,5 +40,8 @@ const (
 	RefreshTokenExpirationWindow = 7 * 24 * time.Hour
 	// check ldap information with `sudo slapcat` command
 	// ou=People,DC=local - default location for users
-	BaseDN = "ou=People,DC=local"
+	PeopleDN      = "ou=People,DC=local"
+	ClaimDN       = "cn=cluster,dc=local"
+	ClaimNameKey  = "x-cluster-claim-name"
+	ClaimValueKey = "x-cluster-claim-value"
 )

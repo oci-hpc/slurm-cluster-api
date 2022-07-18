@@ -33,7 +33,7 @@ func validateLDAPLogin(login LoginInfo) (UserInfo, bool) {
 	userInfo := UserInfo{Username: login.Username}
 
 	// userPassword - exists on the object for a given CN (a username) and OU (Organizational unit)
-	pw, err := queryLDAPUserAttribute(BaseDN, userInfo.Username, "userPassword")
+	pw, err := queryLDAPUserAttribute(PeopleDN, userInfo.Username, "userPassword")
 	if err != nil {
 		return userInfo, false
 	}
@@ -87,6 +87,21 @@ func queryLDAPUserAttribute(dn string, username string, attribute string) (strin
 		return "", err
 	}
 	return result.Entries[0].Attributes[0].Values[0], err
+}
+
+func deleteDN(dn string) error {
+	l, err := LDAPConn()
+	if err != nil {
+		log.Println("deleteDN: " + err.Error())
+		return err
+	}
+	defer l.Close()
+	delReq := ldap.NewDelRequest(dn, nil)
+	if err := l.Del(delReq); err != nil {
+		log.Println("deleteDN: " + err.Error())
+		return err
+	}
+	return nil
 }
 
 // TODO:
