@@ -15,6 +15,17 @@ type UserInfo struct {
 	//TODO: pull in info from LDAP
 }
 
+type RoleRequest struct {
+	Name string
+	Role string
+}
+
+type ClaimRequest struct {
+	Name  string
+	Value int
+	Role  string
+}
+
 type RefreshToken struct {
 	RefreshTokenString string
 	Expiration         int64
@@ -23,6 +34,7 @@ type RefreshToken struct {
 type RBACClaim struct {
 	Name  string
 	Value int
+	DN    string
 }
 
 type RBACRole struct {

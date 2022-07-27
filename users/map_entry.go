@@ -18,10 +18,57 @@ func EntriesToRBACClaims(entries []*ldap.Entry) (claims []RBACClaim) {
 		for _, r := range res {
 			var rbacClaim RBACClaim
 			rbacClaim.Name, rbacClaim.Value = parseClusterClaimCN(r)
+			rbacClaim.DN = r
 			claims = append(claims, rbacClaim)
 		}
 	}
 	return claims
+}
+
+func EntriesToRoles(entries []*ldap.Entry) (roles []RBACRole) {
+	for _, e := range entries {
+		class := e.GetAttributeValue("objectClass")
+		if class == "groupOfUniqueNames" {
+			var role RBACRole
+			role.Name = e.GetAttributeValue("cn")
+			if role.Name == "cluster-claims" {
+				continue
+			}
+			roles = append(roles, role)
+		}
+	}
+	return
+}
+
+func EntriesToUsers(entries []*ldap.Entry) (users []UserInfo) {
+	for _, e := range entries {
+		class := e.GetAttributeValue("objectClass")
+		if class == "groupOfUniqueNames" {
+			vals := e.GetAttributeValues("uniqueMember")
+			for _, v := range vals {
+				var user UserInfo
+				user.Username = parseUserCN(v)
+				users = append(users, user)
+			}
+
+		}
+	}
+	return
+}
+
+func parseUserCN(userCN string) (name string) {
+	s := strings.Split(userCN, ",")
+	if len(s) == 0 {
+		log.Printf("parseUserCN: ERROR - invalid user CN %s", userCN)
+		return
+	}
+	a := strings.Split(s[0], "=")
+	if len(a) == 0 {
+		log.Printf("parseUserCN: ERROR - invalid user CN %s", userCN)
+		return
+	}
+	name = a[1]
+	return
 }
 
 func parseClusterClaimCN(clusterClaimCN string) (name string, value int) {

@@ -26,6 +26,15 @@ func InitializeUsersEndpoint(r *gin.Engine) {
 	r.POST("/refreshToken", TokenAuthMiddleware(), refreshToken)
 	r.GET("/claims", getClaims)
 	r.POST("/claims", addClaim)
+	r.DELETE("/claims", delClaim)
+	r.GET("/role", getRoles)
+	r.POST("/role", addRole)
+	r.DELETE("/role", delRole)
+	r.POST("/role/assign/user", assignRoleUser)
+	r.DELETE("/role/assign/user", delUserFromRole)
+	r.POST("/role/assign/claim", assignRoleClaim)
+	r.DELETE("/role/assign/claim", delClaimFromRole)
+	r.GET("/users", getUsers)
 }
 
 func login(cnx *gin.Context) {
@@ -168,4 +177,173 @@ func addClaim(cnx *gin.Context) {
 		}
 		cnx.JSON(http.StatusOK, "")
 	}
+}
+
+func delClaim(cnx *gin.Context) {
+	var claim RBACClaim
+	if err := cnx.ShouldBindJSON(&claim); err != nil {
+		cnx.JSON(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+
+	err := DeleteRBACClaim(claim.Name, claim.Value)
+	if err != nil {
+		cnx.JSON(http.StatusInternalServerError, "Internal Error")
+		return
+	}
+}
+
+func addRole(cnx *gin.Context) {
+	var req RoleRequest
+	if err := cnx.ShouldBindJSON(&req); err != nil {
+		cnx.JSON(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	if req.Name == "" {
+		cnx.JSON(http.StatusBadRequest, "Must provide name")
+		return
+	}
+	err := AddRBACRole(req.Name)
+	if err != nil {
+		cnx.JSON(http.StatusInternalServerError, "Request did not complete")
+		return
+	}
+	cnx.JSON(http.StatusOK, "")
+}
+
+func getRoles(cnx *gin.Context) {
+	res, err := QueryRBACRoles()
+	if err != nil {
+		cnx.JSON(http.StatusInternalServerError, "Internal error")
+		return
+	}
+	roles := EntriesToRoles(res)
+	for i := 0; i < len(roles); i++ {
+		res, err = QueryRBACRoleClaim(roles[i].Name)
+		if err != nil {
+			cnx.JSON(http.StatusInternalServerError, "Internal error")
+			return
+		}
+		claims := EntriesToRBACClaims(res)
+		roles[i].Claims = claims
+	}
+	cnx.JSON(http.StatusOK, roles)
+}
+
+func delRole(cnx *gin.Context) {
+	var req RoleRequest
+	if err := cnx.ShouldBindJSON(&req); err != nil {
+		cnx.JSON(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	err := DeleteRBACRole(req.Role)
+	if err != nil {
+		cnx.JSON(http.StatusInternalServerError, "Internal error")
+		return
+	}
+}
+
+func getUsers(cnx *gin.Context) {
+	query := cnx.Request.URL.Query()
+	var users []UserInfo
+	if val, ok := query["role"]; ok {
+		res, err := QueryRBACRole(val[0])
+		if err != nil {
+			cnx.JSON(http.StatusInternalServerError, "Internal error")
+			return
+		}
+		users = EntriesToUsers(res)
+	}
+	cnx.JSON(http.StatusOK, users)
+}
+
+func assignRoleUser(cnx *gin.Context) {
+	var req RoleRequest
+	if err := cnx.ShouldBindJSON(&req); err != nil {
+		cnx.JSON(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	if req.Name == "" || req.Role == "" {
+		cnx.JSON(http.StatusBadRequest, "Must provide a name and role")
+	}
+	entries, err := QueryUser(req.Name)
+	if err != nil {
+		cnx.JSON(http.StatusOK, "Internal error")
+	}
+	user := EntriesToUsers(entries)
+	if len(user) == 0 {
+		cnx.JSON(http.StatusAccepted, "No user found")
+		return
+	}
+	err = AddUserToRBACRole(user[0].Username, req.Role)
+	if err != nil {
+		cnx.JSON(http.StatusInternalServerError, "Internal error")
+	}
+	cnx.JSON(http.StatusOK, "")
+	return
+}
+
+func assignRoleClaim(cnx *gin.Context) {
+	var req ClaimRequest
+	if err := cnx.ShouldBindJSON(&req); err != nil {
+		cnx.JSON(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	if req.Name == "" || req.Role == "" {
+		cnx.JSON(http.StatusBadRequest, "Must provide a claim and role")
+	}
+	entries, err := QueryRBACClaim(req.Name, req.Value)
+	if err != nil {
+		cnx.JSON(http.StatusInternalServerError, "Internal Error")
+		return
+	}
+	claims := EntriesToRBACClaims(entries)
+	err = AddRBACClaimToRole(req.Role, claims[0].DN)
+	if err != nil {
+		cnx.JSON(http.StatusInternalServerError, "Internal Error")
+		return
+	}
+	cnx.JSON(http.StatusOK, "")
+	return
+}
+
+func delClaimFromRole(cnx *gin.Context) {
+	var req ClaimRequest
+	if err := cnx.ShouldBindJSON(&req); err != nil {
+		cnx.JSON(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	if req.Name == "" || req.Role == "" {
+		cnx.JSON(http.StatusBadRequest, "Must provide a claim and role")
+	}
+	entries, err := QueryRBACClaim(req.Name, req.Value)
+	if err != nil {
+		cnx.JSON(http.StatusInternalServerError, "Internal Error")
+		return
+	}
+	claims := EntriesToRBACClaims(entries)
+	err = DeleteRBACClaimFromRole(req.Role, claims[0].DN)
+	if err != nil {
+		cnx.JSON(http.StatusInternalServerError, "Internal Error")
+		return
+	}
+	cnx.JSON(http.StatusOK, "")
+	return
+}
+
+func delUserFromRole(cnx *gin.Context) {
+	var req RoleRequest
+	if err := cnx.ShouldBindJSON(&req); err != nil {
+		cnx.JSON(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	if req.Name == "" || req.Role == "" {
+		cnx.JSON(http.StatusBadRequest, "Must provide a name and role")
+	}
+	err := RemoveUserFromRBACRole(req.Name, req.Role)
+	if err != nil {
+		cnx.JSON(http.StatusInternalServerError, "Internal error")
+		return
+	}
+	cnx.JSON(http.StatusOK, "")
 }
