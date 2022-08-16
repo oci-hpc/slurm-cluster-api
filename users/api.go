@@ -2,7 +2,6 @@ package users
 
 import (
 	"errors"
-	"log"
 	"net/http"
 	"time"
 
@@ -25,6 +24,7 @@ func InitializeUsersEndpoint(r *gin.Engine) {
 	r.GET("/logout", logout)
 	r.POST("/refreshToken", TokenAuthMiddleware(), refreshToken)
 	r.GET("/claims", getClaims)
+	r.GET("/claims/types", getClaimsTypes)
 	r.POST("/claims", addClaim)
 	r.DELETE("/claims", delClaim)
 	r.GET("/role", getRoles)
@@ -140,6 +140,11 @@ func getClaims(cnx *gin.Context) {
 	}
 }
 
+func getClaimsTypes(cnx *gin.Context) {
+	res := GetClaimTypes()
+	cnx.JSON(http.StatusOK, res)
+}
+
 func addClaim(cnx *gin.Context) {
 	var claim RBACClaim
 	if err := cnx.ShouldBindJSON(&claim); err != nil {
@@ -150,7 +155,7 @@ func addClaim(cnx *gin.Context) {
 		cnx.JSON(http.StatusBadRequest, "Name is invalid")
 		return
 	}
-	query := cnx.Request.URL.Query()
+	/*query := cnx.Request.URL.Query()
 	if val, ok := query["role"]; ok {
 		e, err := QueryRBACClaim(claim.Name, claim.Value)
 		if err != nil {
@@ -169,14 +174,14 @@ func addClaim(cnx *gin.Context) {
 			cnx.JSON(http.StatusBadRequest, "Unable to add claim to role")
 			return
 		}
-	} else {
-		err := AddRBACClaim(claim.Name, claim.Value)
-		if err != nil {
-			cnx.JSON(http.StatusInternalServerError, err.Error())
-			return
-		}
-		cnx.JSON(http.StatusOK, "")
+	} else {*/
+	err := AddRBACClaim(claim.Name, claim.Value)
+	if err != nil {
+		cnx.JSON(http.StatusInternalServerError, err.Error())
+		return
 	}
+	cnx.JSON(http.StatusOK, "")
+	//}
 }
 
 func delClaim(cnx *gin.Context) {
@@ -224,7 +229,7 @@ func getRoles(cnx *gin.Context) {
 			cnx.JSON(http.StatusInternalServerError, "Internal error")
 			return
 		}
-		claims := EntriesToRBACClaims(res)
+		claims := RoleEntriesToRBACClaims(res)
 		roles[i].Claims = claims
 	}
 	cnx.JSON(http.StatusOK, roles)
@@ -236,7 +241,7 @@ func delRole(cnx *gin.Context) {
 		cnx.JSON(http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	err := DeleteRBACRole(req.Role)
+	err := DeleteRBACRole(req.Name)
 	if err != nil {
 		cnx.JSON(http.StatusInternalServerError, "Internal error")
 		return
@@ -244,16 +249,22 @@ func delRole(cnx *gin.Context) {
 }
 
 func getUsers(cnx *gin.Context) {
-	query := cnx.Request.URL.Query()
+	//query := cnx.Request.URL.Query()
 	var users []UserInfo
-	if val, ok := query["role"]; ok {
+	res, err := QueryUsers()
+	if err != nil {
+		cnx.JSON(http.StatusInternalServerError, "Internal error")
+		return
+	}
+	users = EntriesToUsers(res)
+	/*if val, ok := query["role"]; ok {
 		res, err := QueryRBACRole(val[0])
 		if err != nil {
 			cnx.JSON(http.StatusInternalServerError, "Internal error")
 			return
 		}
 		users = EntriesToUsers(res)
-	}
+	}*/
 	cnx.JSON(http.StatusOK, users)
 }
 
@@ -265,19 +276,28 @@ func assignRoleUser(cnx *gin.Context) {
 	}
 	if req.Name == "" || req.Role == "" {
 		cnx.JSON(http.StatusBadRequest, "Must provide a name and role")
+		return
 	}
 	entries, err := QueryUser(req.Name)
 	if err != nil {
-		cnx.JSON(http.StatusOK, "Internal error")
+		cnx.JSON(http.StatusInternalServerError, "Internal error")
+		return
 	}
 	user := EntriesToUsers(entries)
 	if len(user) == 0 {
 		cnx.JSON(http.StatusAccepted, "No user found")
 		return
 	}
-	err = AddUserToRBACRole(user[0].Username, req.Role)
+	res, err := QueryRBACRole(req.Role)
 	if err != nil {
 		cnx.JSON(http.StatusInternalServerError, "Internal error")
+		return
+	}
+	role := EntriesToRoles(res)[0]
+	err = AddUserToRBACRole(user[0].Username, role)
+	if err != nil {
+		cnx.JSON(http.StatusInternalServerError, "Internal error")
+		return
 	}
 	cnx.JSON(http.StatusOK, "")
 	return
@@ -298,7 +318,13 @@ func assignRoleClaim(cnx *gin.Context) {
 		return
 	}
 	claims := EntriesToRBACClaims(entries)
-	err = AddRBACClaimToRole(req.Role, claims[0].DN)
+	res, err := QueryRBACRole(req.Role)
+	if err != nil {
+		cnx.JSON(http.StatusInternalServerError, "Internal error")
+		return
+	}
+	role := EntriesToRoles(res)[0]
+	err = AddRBACClaimToRole(role, claims[0].DN)
 	if err != nil {
 		cnx.JSON(http.StatusInternalServerError, "Internal Error")
 		return
@@ -340,7 +366,13 @@ func delUserFromRole(cnx *gin.Context) {
 	if req.Name == "" || req.Role == "" {
 		cnx.JSON(http.StatusBadRequest, "Must provide a name and role")
 	}
-	err := RemoveUserFromRBACRole(req.Name, req.Role)
+	res, err := QueryRBACRole(req.Role)
+	if err != nil {
+		cnx.JSON(http.StatusInternalServerError, "Internal error")
+		return
+	}
+	role := EntriesToRoles(res)[0]
+	err = RemoveUserFromRBACRole(req.Name, role)
 	if err != nil {
 		cnx.JSON(http.StatusInternalServerError, "Internal error")
 		return

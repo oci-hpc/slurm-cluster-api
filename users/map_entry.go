@@ -10,9 +10,29 @@ import (
 
 func EntriesToRBACClaims(entries []*ldap.Entry) (claims []RBACClaim) {
 	for _, e := range entries {
+		claimName := e.GetAttributeValue("x-cluster-claim-name")
+		if claimName != "" {
+			var rbacClaim RBACClaim
+			rbacClaim.Name = claimName
+			valString := e.GetAttributeValue("x-cluster-claim-value")
+			val, err := strconv.Atoi(valString)
+			if err != nil {
+				log.Println("EntriesToRBACClaims: " + err.Error())
+				continue
+			}
+			rbacClaim.Value = val
+			rbacClaim.DN = e.DN
+			claims = append(claims, rbacClaim)
+		}
+	}
+	return
+}
+
+func RoleEntriesToRBACClaims(entries []*ldap.Entry) (claims []RBACClaim) {
+	for _, e := range entries {
 		cn := e.GetAttributeValue("cn")
 		if cn != "cluster-claims" {
-			return claims
+			continue
 		}
 		res := e.GetAttributeValues("uniqueMember")
 		for _, r := range res {
@@ -34,7 +54,28 @@ func EntriesToRoles(entries []*ldap.Entry) (roles []RBACRole) {
 			if role.Name == "cluster-claims" {
 				continue
 			}
+			userStrings := e.GetAttributeValues("uniqueMember")
+			for _, u := range userStrings {
+				var user UserInfo
+				user.Username = parseUserCN(u)
+				role.Users = append(role.Users, user)
+			}
 			roles = append(roles, role)
+		}
+	}
+	return
+}
+
+func RoleEntriesToUsers(entries []*ldap.Entry) (users []UserInfo) {
+	for _, e := range entries {
+		class := e.GetAttributeValue("objectClass")
+		if class == "groupOfUniqueNames" && !strings.HasPrefix(e.DN, "cn=cluster-claims") {
+			vals := e.GetAttributeValues("uniqueMember")
+			for _, v := range vals {
+				var user UserInfo
+				user.Username = parseUserCN(v)
+				users = append(users, user)
+			}
 		}
 	}
 	return
@@ -42,15 +83,11 @@ func EntriesToRoles(entries []*ldap.Entry) (roles []RBACRole) {
 
 func EntriesToUsers(entries []*ldap.Entry) (users []UserInfo) {
 	for _, e := range entries {
-		class := e.GetAttributeValue("objectClass")
-		if class == "groupOfUniqueNames" {
-			vals := e.GetAttributeValues("uniqueMember")
-			for _, v := range vals {
-				var user UserInfo
-				user.Username = parseUserCN(v)
-				users = append(users, user)
-			}
-
+		uid := e.GetAttributeValue("uid")
+		if uid != "" {
+			var user UserInfo
+			user.Username = parseUserCN(e.DN)
+			users = append(users, user)
 		}
 	}
 	return

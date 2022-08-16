@@ -113,11 +113,7 @@ func QueryRBACRoleClaim(role string) ([]*ldap.Entry, error) {
 		log.Println("QueryRBACRoleClaim: " + err.Error())
 		return nil, err
 	}
-	if len(result.Entries) == 0 {
-		err = errors.New("Could not find role")
-		log.Println("QueryRBACRoleClaim: " + err.Error())
-		return nil, err
-	}
+
 	return result.Entries, err
 }
 
@@ -148,6 +144,25 @@ func QueryUser(user string) ([]*ldap.Entry, error) {
 	defer l.Close()
 	filter := fmt.Sprintf("(cn=%s)", user)
 	searchReq := ldap.NewSearchRequest(PeopleDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false, filter, nil, nil)
+
+	result, err := l.Search(searchReq)
+
+	if err != nil {
+		log.Println("QueryUser: " + err.Error())
+		return nil, err
+	}
+	return result.Entries, err
+}
+
+func QueryUsers() ([]*ldap.Entry, error) {
+	//This is the same as QueryRBACRoles, same DN
+	l, err := LDAPConn()
+	if err != nil {
+		log.Println("QueryUser: " + err.Error())
+		return nil, err
+	}
+	defer l.Close()
+	searchReq := ldap.NewSearchRequest(PeopleDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false, "(cn=*)", nil, nil)
 
 	result, err := l.Search(searchReq)
 
@@ -205,16 +220,20 @@ func DeleteRBACRole(role string) error {
 	return delete(dn)
 }
 
-func AddUserToRBACRole(name string, role string) error {
+func AddUserToRBACRole(name string, role RBACRole) error {
 	l, err := LDAPConn()
 	if err != nil {
 		fmt.Println("AddUserToRBACRole: " + err.Error())
 		return err
 	}
 	defer l.Close()
-	dn := fmt.Sprintln("cn=%s,%s", role, PeopleDN)
-	mod := ldap.NewModifyRequest(dn, nil)
-	mod.Add("uniqueMember", []string{name})
+	var userDNs []string
+	dn := fmt.Sprintf("cn=%s,%s", name, PeopleDN)
+	userDNs = append(userDNs, dn)
+	//userDNs = ensureAdminDN(userDNs)
+	dnRole := fmt.Sprintf("cn=%s,%s", role.Name, PeopleDN)
+	mod := ldap.NewModifyRequest(dnRole, nil)
+	mod.Add("uniqueMember", userDNs)
 	if err := l.Modify(mod); err != nil {
 		log.Println("AddUserToRBACRole: " + err.Error())
 		return err
@@ -222,21 +241,44 @@ func AddUserToRBACRole(name string, role string) error {
 	return nil
 }
 
-func RemoveUserFromRBACRole(name string, role string) error {
+func RemoveUserFromRBACRole(name string, role RBACRole) error {
 	l, err := LDAPConn()
 	if err != nil {
 		fmt.Println("RemoveUserFromRBACRole: " + err.Error())
 		return err
 	}
 	defer l.Close()
-	dn := fmt.Sprintln("cn=%s,%s", role, PeopleDN)
+	var userDNs []string
+	for _, r := range role.Users {
+		if r.Username == name {
+			continue
+		}
+		dn := fmt.Sprintf("cn=%s,%s", r.Username, PeopleDN)
+		userDNs = append(userDNs, dn)
+	}
+	userDNs = ensureAdminDN(userDNs)
+	dn := fmt.Sprintf("cn=%s,%s", role.Name, PeopleDN)
 	mod := ldap.NewModifyRequest(dn, nil)
-	mod.Delete("uniqueMember", []string{name})
+	mod.Replace("uniqueMember", userDNs)
 	if err := l.Modify(mod); err != nil {
 		log.Println("RemoveUserFromRBACRole: " + err.Error())
 		return err
 	}
 	return nil
+}
+
+func ensureAdminDN(userDNs []string) []string {
+	var found bool
+	adminDN := fmt.Sprintf("cn=%s,%s", "admin", PeopleDN)
+	for _, u := range userDNs {
+		if u == adminDN {
+			found = true
+		}
+	}
+	if !found {
+		userDNs = append(userDNs, adminDN)
+	}
+	return userDNs
 }
 
 func AddRBACClaim(name string, value int) error {
@@ -266,7 +308,7 @@ func DeleteRBACClaim(name string, value int) error {
 	return delete(dn)
 }
 
-func AddRBACClaimToRole(role string, claimDN string) error {
+func AddRBACClaimToRole(role RBACRole, claimDN string) error {
 	//cn=TestRole,ou=People,dc=local
 	l, err := LDAPConn()
 	if err != nil {
@@ -274,21 +316,71 @@ func AddRBACClaimToRole(role string, claimDN string) error {
 		return err
 	}
 	defer l.Close()
-	dn := fmt.Sprintf("cn=cluster-claims,cn=%s,%s", role, PeopleDN)
-	addReq := ldap.NewAddRequest(dn, nil)
-	addAttributeToAddRequest(addReq, "objectClass", []string{"groupOfUniqueNames", "top"})
-	addAttributeToAddRequest(addReq, "uniqueMember", []string{claimDN})
-	addAttributeToAddRequest(addReq, "cn", []string{"cluster-claims"})
-	if err := l.Add(addReq); err != nil {
-		log.Println("AddRBACClaimToRole: " + err.Error())
+	dn := fmt.Sprintf("cn=cluster-claims,cn=%s,%s", role.Name, PeopleDN)
+	e, err := QueryRBACRoleClaim(role.Name)
+	if err != nil {
+		log.Println("AddClaimToRBACRole: " + err.Error())
 		return err
+	}
+	claims := RoleEntriesToRBACClaims(e)
+	if len(claims) == 0 {
+		addReq := ldap.NewAddRequest(dn, nil)
+		addAttributeToAddRequest(addReq, "objectClass", []string{"groupOfUniqueNames", "top"})
+		addAttributeToAddRequest(addReq, "uniqueMember", []string{claimDN})
+		addAttributeToAddRequest(addReq, "cn", []string{"cluster-claims"})
+		//dnRole := fmt.Sprintf("cn=%s,%s", role.Name, PeopleDN)
+		if err := l.Add(addReq); err != nil {
+			log.Println("AddRBACClaimToRole: " + err.Error())
+			return err
+		}
+	} else {
+		mod := ldap.NewModifyRequest(dn, nil)
+		mod.Add("uniqueMember", []string{claimDN})
+		if err := l.Modify(mod); err != nil {
+			log.Println("AddClaimToRBACRole: " + err.Error())
+			return err
+		}
+		/*if err := l.Add(addReq); err != nil {
+			log.Println("AddRBACClaimToRole: " + err.Error())
+			return err
+		}*/
 	}
 	return nil
 }
 
-func DeleteRBACClaimFromRole(role string, claimDN string) error {
-	dn := fmt.Sprintf("cn=cluster-claims,cn=%s,%s", role, PeopleDN)
-	return delete(dn)
+func DeleteRBACClaimFromRole(roleName string, claimDN string) error {
+	l, err := LDAPConn()
+	if err != nil {
+		fmt.Println("DeleteRBACClaimFromRole: " + err.Error())
+		return err
+	}
+	defer l.Close()
+	dn := fmt.Sprintf("cn=cluster-claims,cn=%s,%s", roleName, PeopleDN)
+	e, err := QueryRBACRoleClaim(roleName)
+	if err != nil {
+		log.Println("DeleteRBACClaimFromRole: " + err.Error())
+		return err
+	}
+	claims := RoleEntriesToRBACClaims(e)
+	var updatedClaimDNs []string
+	for _, c := range claims {
+		if c.DN != claimDN {
+			updatedClaimDNs = append(updatedClaimDNs, c.DN)
+		}
+	}
+
+	if len(updatedClaimDNs) == 0 {
+		deleteDN(dn)
+	} else {
+		mod := ldap.NewModifyRequest(dn, nil)
+		mod.Replace("uniqueMember", updatedClaimDNs)
+		if err := l.Modify(mod); err != nil {
+			log.Println("DeleteRBACClaimFromRole: " + err.Error())
+			return err
+		}
+	}
+
+	return nil
 }
 
 func addAttributeToAddRequest(req *ldap.AddRequest, typeString string, values []string) {

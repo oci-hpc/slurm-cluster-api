@@ -40,6 +40,7 @@ type RBACClaim struct {
 type RBACRole struct {
 	Name   string
 	Claims []RBACClaim
+	Users  []UserInfo
 }
 
 const (
